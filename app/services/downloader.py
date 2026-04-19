@@ -46,6 +46,48 @@ def _cookies_file() -> Path | None:
     return None
 
 
+def _yt_dlp_failure_user_message(
+    stderr: str,
+    *,
+    cookies_path: Path,
+    cookies_present: bool,
+) -> str:
+    """Map yt-dlp stderr to a user-facing string (last few lines only)."""
+
+    stderr_tail = (stderr or "").strip().splitlines()[-5:]
+    joined = "; ".join(stderr_tail).lower()
+    if "requested format is not available" in joined:
+        return (
+            f"No H.264 video at {_MAX_HEIGHT}p or lower is available "
+            "for this URL. The Pi 3 can only play H.264 smoothly, so "
+            "this video cannot be downloaded."
+        )
+    if "confirm your age" in joined:
+        return (
+            "This YouTube video is age-restricted. In a normal browser, sign in "
+            "to the same throwaway Google account you use for Pi Hub cookies, "
+            "complete any age verification YouTube shows, then export a fresh "
+            f"cookies.txt for youtube.com and replace {cookies_path}."
+        )
+    if (
+        "confirm you're not a bot" in joined
+        or "sign in to confirm you're not a bot" in joined
+        or "not a bot" in joined
+    ):
+        if not cookies_present:
+            return (
+                "YouTube requires authentication for this video and no "
+                "cookies file is configured. See README (YouTube "
+                "authentication section) to set one up."
+            )
+        return (
+            "YouTube rejected the cookies (likely expired). Re-export "
+            "cookies.txt from your throwaway account and replace "
+            f"{cookies_path}."
+        )
+    return "; ".join(stderr_tail) or "yt-dlp failed"
+
+
 @dataclass
 class DownloadJob:
     id: str
@@ -156,29 +198,11 @@ def _run_download(job: DownloadJob) -> None:
         return
 
     if completed.returncode != 0:
-        stderr_tail = (completed.stderr or "").strip().splitlines()[-5:]
-        joined = "; ".join(stderr_tail).lower()
-        if "requested format is not available" in joined:
-            message = (
-                f"No H.264 video at {_MAX_HEIGHT}p or lower is available "
-                "for this URL. The Pi 3 can only play H.264 smoothly, so "
-                "this video cannot be downloaded."
-            )
-        elif "sign in to confirm you" in joined or "confirm you're not a bot" in joined:
-            if _cookies_file() is None:
-                message = (
-                    "YouTube requires authentication for this video and no "
-                    "cookies file is configured. See README (YouTube "
-                    "authentication section) to set one up."
-                )
-            else:
-                message = (
-                    "YouTube rejected the cookies (likely expired). Re-export "
-                    "cookies.txt from your throwaway account and replace "
-                    f"{_COOKIES_PATH}."
-                )
-        else:
-            message = "; ".join(stderr_tail) or "yt-dlp failed"
+        message = _yt_dlp_failure_user_message(
+            completed.stderr or "",
+            cookies_path=_COOKIES_PATH,
+            cookies_present=_cookies_file() is not None,
+        )
         log.warning(
             "Download failed: id=%s rc=%s msg=%s",
             job.id, completed.returncode, message,

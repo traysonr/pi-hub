@@ -1,6 +1,6 @@
 STATUS: CANONICAL
 OWNER: trays
-LAST UPDATED: 2026-04-19
+LAST UPDATED: 2026-04-20
 SCOPE: Pi Hub network-controlled media server for Raspberry Pi — setup, API, screensaver, and operations.
 RELATED: docs/README.md, docs/INDEX.md, app/README.md, AGENTS.md
 
@@ -141,6 +141,11 @@ Setup:
 Cookies expire periodically (weeks to months). When downloads start failing
 with a "YouTube rejected the cookies" error, repeat the export step. The
 `secrets/` directory is gitignored.
+
+**Age-restricted videos and Shorts:** YouTube may return "Sign in to confirm
+your age" for some clips. That is not the same as expired anti-bot cookies:
+open youtube.com in the same throwaway account, complete any age prompt
+YouTube shows, then export a new `cookies.txt` and replace the file on the Pi.
 
 ## API
 
