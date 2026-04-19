@@ -4,10 +4,13 @@
   const els = {
     form: document.getElementById("download-form"),
     url: document.getElementById("url"),
+    audioOnly: document.getElementById("audio-only"),
     downloadBtn: document.getElementById("download-btn"),
     downloadStatus: document.getElementById("download-status"),
     refreshBtn: document.getElementById("refresh-btn"),
-    list: document.getElementById("video-list"),
+    musicRefreshBtn: document.getElementById("music-refresh-btn"),
+    videoList: document.getElementById("video-list"),
+    musicList: document.getElementById("music-list"),
     playerStatus: document.getElementById("player-status"),
     nowPlaying: document.getElementById("now-playing"),
     pauseBtn: document.getElementById("pause-btn"),
@@ -28,21 +31,26 @@
     ssThemes: document.getElementById("ss-themes"),
     ssMeta: document.getElementById("ss-meta"),
     tabs: {
-      home: document.getElementById("tab-home"),
+      add: document.getElementById("tab-add"),
+      video: document.getElementById("tab-video"),
+      music: document.getElementById("tab-music"),
       screensaver: document.getElementById("tab-screensaver"),
       remote: document.getElementById("tab-remote"),
     },
     tabBtns: {
-      home: document.getElementById("tabbtn-home"),
+      add: document.getElementById("tabbtn-add"),
+      video: document.getElementById("tabbtn-video"),
+      music: document.getElementById("tabbtn-music"),
       screensaver: document.getElementById("tabbtn-screensaver"),
       remote: document.getElementById("tabbtn-remote"),
     },
   };
 
   let activeJobId = null;
+  let activeJobAudioOnly = false;
   let pollHandle = null;
   let statusPollHandle = null;
-  let currentTab = "home";
+  let currentTab = "add";
   let lastKnownPlaying = false;
 
   // ---- Helpers ------------------------------------------------------------
@@ -112,38 +120,74 @@
     if (name === "screensaver") {
       refreshScreensaver();
     }
+    if (name === "video") {
+      loadVideos();
+    }
+    if (name === "music") {
+      loadMusic();
+    }
   }
 
   for (const [name, btn] of Object.entries(els.tabBtns)) {
     btn.addEventListener("click", () => showTab(name));
   }
 
-  // ---- Catalogue ----------------------------------------------------------
+  // ---- Catalogue (videos + music) -----------------------------------------
 
-  async function loadVideos() {
+  // Both libraries share the same item shape ({filename, title, size_bytes,
+  // modified}) and the same Play/Delete UX. The only differences are the
+  // API paths, the items array key in the response, and the empty-state
+  // copy, so we drive everything from a single config object.
+  const LIBRARIES = {
+    videos: {
+      api: "/api/videos",
+      itemsKey: "videos",
+      deleteApi: (filename) => `/api/videos/${encodeURIComponent(filename)}`,
+      empty: "No videos yet. Add one from the Add tab.",
+      listEl: () => els.videoList,
+      playLibrary: "videos",
+    },
+    music: {
+      api: "/api/music",
+      itemsKey: "tracks",
+      deleteApi: (filename) => `/api/music/${encodeURIComponent(filename)}`,
+      empty: "No music yet. Add one from the Add tab with Audio only on.",
+      listEl: () => els.musicList,
+      playLibrary: "music",
+    },
+  };
+
+  async function loadLibrary(kind) {
+    const cfg = LIBRARIES[kind];
+    if (!cfg) return;
+    const listEl = cfg.listEl();
+    if (!listEl) return;
     try {
-      const data = await api("/api/videos");
-      renderVideos(data.videos || []);
+      const data = await api(cfg.api);
+      renderLibrary(kind, data[cfg.itemsKey] || []);
     } catch (err) {
-      els.list.innerHTML = "";
+      listEl.innerHTML = "";
       const li = document.createElement("li");
       li.className = "empty";
       li.textContent = `Failed to load: ${err.message}`;
-      els.list.appendChild(li);
+      listEl.appendChild(li);
     }
   }
 
-  function renderVideos(videos) {
-    els.list.innerHTML = "";
-    if (videos.length === 0) {
+  function renderLibrary(kind, items) {
+    const cfg = LIBRARIES[kind];
+    const listEl = cfg.listEl();
+    if (!listEl) return;
+    listEl.innerHTML = "";
+    if (items.length === 0) {
       const li = document.createElement("li");
       li.className = "empty";
-      li.textContent = "No videos yet. Download one above.";
-      els.list.appendChild(li);
+      li.textContent = cfg.empty;
+      listEl.appendChild(li);
       return;
     }
 
-    for (const v of videos) {
+    for (const item of items) {
       const li = document.createElement("li");
       li.className = "video";
 
@@ -152,14 +196,14 @@
 
       const title = document.createElement("span");
       title.className = "title";
-      title.textContent = v.title || v.filename;
-      title.title = v.filename;
+      title.textContent = item.title || item.filename;
+      title.title = item.filename;
 
       const sub = document.createElement("span");
       sub.className = "sub";
       const parts = [];
-      if (v.size_bytes) parts.push(fmtSize(v.size_bytes));
-      if (v.modified) parts.push(fmtDate(v.modified));
+      if (item.size_bytes) parts.push(fmtSize(item.size_bytes));
+      if (item.modified) parts.push(fmtDate(item.modified));
       sub.textContent = parts.join(" · ");
 
       meta.appendChild(title);
@@ -173,7 +217,7 @@
       playBtn.className = "play-btn";
       playBtn.textContent = "Play";
       playBtn.addEventListener("click", () =>
-        playVideo(v.filename, v.title || v.filename, playBtn)
+        playMedia(kind, item.filename, item.title || item.filename, playBtn)
       );
 
       const deleteBtn = document.createElement("button");
@@ -181,7 +225,7 @@
       deleteBtn.className = "ghost danger delete-btn";
       deleteBtn.textContent = "Delete";
       deleteBtn.addEventListener("click", () =>
-        deleteVideo(v.filename, v.title || v.filename, deleteBtn)
+        deleteMedia(kind, item.filename, item.title || item.filename, deleteBtn)
       );
 
       actions.appendChild(playBtn);
@@ -189,11 +233,19 @@
 
       li.appendChild(meta);
       li.appendChild(actions);
-      els.list.appendChild(li);
+      listEl.appendChild(li);
     }
   }
 
-  async function deleteVideo(filename, label, btn) {
+  function loadVideos() {
+    return loadLibrary("videos");
+  }
+
+  function loadMusic() {
+    return loadLibrary("music");
+  }
+
+  async function deleteMedia(kind, filename, label, btn) {
     const confirmed = window.confirm(`Delete "${label}"? This cannot be undone.`);
     if (!confirmed) return;
 
@@ -202,11 +254,9 @@
       btn.textContent = "Deleting…";
     }
     try {
-      await api(`/api/videos/${encodeURIComponent(filename)}`, {
-        method: "DELETE",
-      });
+      await api(LIBRARIES[kind].deleteApi(filename), { method: "DELETE" });
       setStatus(els.downloadStatus, `Deleted: ${label}`, "success");
-      loadVideos();
+      loadLibrary(kind);
       refreshPlayerStatus();
     } catch (err) {
       setStatus(els.downloadStatus, `Delete failed: ${err.message}`, "error");
@@ -219,7 +269,7 @@
 
   // ---- Playback / Remote --------------------------------------------------
 
-  async function playVideo(filename, label, btn) {
+  async function playMedia(kind, filename, label, btn) {
     if (btn) {
       btn.disabled = true;
       btn.textContent = "Starting…";
@@ -227,11 +277,19 @@
     try {
       await api("/api/play", {
         method: "POST",
-        body: JSON.stringify({ filename }),
+        body: JSON.stringify({
+          filename,
+          library: LIBRARIES[kind].playLibrary,
+        }),
       });
-      setPlayerStatus({ playing: true, paused: false, title: label || filename });
+      setPlayerStatus({
+        playing: true,
+        paused: false,
+        title: label || filename,
+        kind: LIBRARIES[kind].playLibrary === "music" ? "audio" : "video",
+      });
       // Force-switch the user to the remote so they can immediately control
-      // what's now playing on the TV.
+      // whatever just started playing.
       showTab("remote");
       schedulePolling();
     } catch (err) {
@@ -247,6 +305,7 @@
   function setPlayerStatus(state) {
     const playing = !!(state && state.playing);
     const paused = !!(state && state.paused);
+    const kind = state && state.kind;
     lastKnownPlaying = playing;
 
     els.playerStatus.classList.remove("playing", "paused");
@@ -255,15 +314,16 @@
       els.playerStatus.textContent = "paused";
     } else if (playing) {
       els.playerStatus.classList.add("playing");
-      els.playerStatus.textContent = "playing";
+      els.playerStatus.textContent = kind === "audio" ? "playing audio" : "playing";
     } else {
       els.playerStatus.textContent = "idle";
     }
 
     const label =
       (state && (state.title || state.filename)) || (playing ? "Playing" : "");
+    const prefix = playing && kind === "audio" ? "♪ " : "";
     els.nowPlaying.textContent = playing
-      ? label || "Playing"
+      ? `${prefix}${label || "Playing"}`
       : "Nothing playing";
 
     if (playing && paused) {
@@ -422,26 +482,49 @@
 
   // ---- Downloads ----------------------------------------------------------
 
-  els.refreshBtn.addEventListener("click", () => {
-    loadVideos();
-    refreshPlayerStatus();
-  });
+  if (els.refreshBtn) {
+    els.refreshBtn.addEventListener("click", () => {
+      loadVideos();
+      refreshPlayerStatus();
+    });
+  }
+
+  if (els.musicRefreshBtn) {
+    els.musicRefreshBtn.addEventListener("click", () => {
+      loadMusic();
+      refreshPlayerStatus();
+    });
+  }
 
   els.form.addEventListener("submit", async (event) => {
     event.preventDefault();
     const url = els.url.value.trim();
     if (!url) return;
 
+    // Prefer FormData so we reflect the actual form state; also read the
+    // checkbox directly in case the cached ref is stale.
+    const fd = new FormData(els.form);
+    const audioOnly =
+      fd.get("audio_only") === "on" ||
+      !!(els.audioOnly && els.audioOnly.checked);
+
     els.downloadBtn.disabled = true;
-    setStatus(els.downloadStatus, "Queueing download…");
+    setStatus(
+      els.downloadStatus,
+      audioOnly ? "Queueing audio download…" : "Queueing download…"
+    );
 
     try {
       const data = await api("/api/download", {
         method: "POST",
-        body: JSON.stringify({ url }),
+        body: JSON.stringify({ url, audio_only: audioOnly }),
       });
       activeJobId = data.job.id;
-      setStatus(els.downloadStatus, "Download started…");
+      activeJobAudioOnly = !!data.job.audio_only;
+      setStatus(
+        els.downloadStatus,
+        activeJobAudioOnly ? "Audio download started…" : "Download started…"
+      );
       els.url.value = "";
       pollJob();
     } catch (err) {
@@ -464,23 +547,33 @@
         return;
       }
       if (job.status === "success") {
+        const targetTab = activeJobAudioOnly ? "Music" : "Video";
         setStatus(
           els.downloadStatus,
-          job.filename ? `Saved: ${job.filename}` : "Download complete",
+          job.filename
+            ? `Saved to ${targetTab}: ${job.filename}`
+            : `Download complete (saved to ${targetTab})`,
           "success"
         );
         activeJobId = null;
-        loadVideos();
+        if (activeJobAudioOnly) {
+          loadMusic();
+        } else {
+          loadVideos();
+        }
+        activeJobAudioOnly = false;
         return;
       }
       if (job.status === "error") {
         setStatus(els.downloadStatus, `Failed: ${job.message || "unknown error"}`, "error");
         activeJobId = null;
+        activeJobAudioOnly = false;
         return;
       }
     } catch (err) {
       setStatus(els.downloadStatus, `Lost track of job: ${err.message}`, "error");
       activeJobId = null;
+      activeJobAudioOnly = false;
     }
   }
 
@@ -674,7 +767,35 @@
 
   // ---- Boot ---------------------------------------------------------------
 
+  // Resume tracking any download still in flight when the page reloaded,
+  // so the "Saved to Music/Video" indicator and auto-refresh fire even
+  // if the user navigated away during a long extraction.
+  async function resumeActiveDownload() {
+    try {
+      const data = await api("/api/downloads");
+      const jobs = data.jobs || [];
+      // Newest first (the API already sorts by created_at desc).
+      const inflight = jobs.find(
+        (j) => j.status === "downloading" || j.status === "queued"
+      );
+      if (!inflight) return;
+      activeJobId = inflight.id;
+      activeJobAudioOnly = !!inflight.audio_only;
+      setStatus(
+        els.downloadStatus,
+        activeJobAudioOnly
+          ? "Resuming audio download in progress…"
+          : "Resuming download in progress…"
+      );
+      pollJob();
+    } catch (_) {
+      // Non-fatal; resume is best-effort.
+    }
+  }
+
   loadVideos();
+  loadMusic();
+  resumeActiveDownload();
   refreshPlayerStatus().then((state) => {
     // If the server is already mid-playback when the page opens, drop the
     // user straight onto the remote so they don't have to hunt for it.

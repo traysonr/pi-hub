@@ -17,7 +17,7 @@ from app.config import (
 )
 from app.routes import media as media_routes
 from app.routes import screensaver as screensaver_routes
-from app.services import display, screensaver
+from app.services import audio_player, display, screensaver
 
 configure_logging()
 ensure_runtime_dirs()
@@ -25,6 +25,10 @@ ensure_runtime_dirs()
 # subsystem registers its playlist provider. The controller is what
 # keeps the TV from ever falling back to the Linux console.
 display.init()
+# Headless second mpv for music playback. Pre-spawning at boot keeps
+# the first /api/play of an audio track snappy (loadfile over IPC
+# instead of fork+exec on the Pi 3).
+audio_player.init()
 screensaver.init()
 
 log = logging.getLogger("pi-hub")

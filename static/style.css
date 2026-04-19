@@ -200,6 +200,12 @@ label {
   flex: 0 1 auto;
 }
 
+.form-row {
+  display: flex;
+  align-items: center;
+  margin-top: 12px;
+}
+
 input[type="url"],
 input[type="text"] {
   width: 100%;
@@ -571,6 +577,7 @@ button.ghost.danger {
 /* Toggle switch (used for screensaver enabled flag). */
 
 .switch {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 10px;
@@ -578,10 +585,21 @@ button.ghost.danger {
   user-select: none;
 }
 
+/* Invisible checkbox sits above the slider track so clicks reliably toggle
+   state. (pointer-events:none on the input made some browsers never flip
+   .checked when tapping the custom track.) */
 .switch input {
   position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 44px;
+  height: 24px;
+  margin: 0;
+  padding: 0;
   opacity: 0;
-  pointer-events: none;
+  z-index: 2;
+  cursor: pointer;
 }
 
 .switch-slider {
@@ -635,7 +653,7 @@ button.ghost.danger {
   display: grid;
   /* minmax(0, 1fr) is the critical fix that lets the wide "Screensaver"
      label shrink to fit instead of forcing the row to wrap. */
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   background: var(--surface);
   border-top: 1px solid var(--border);
   padding-bottom: env(safe-area-inset-bottom, 0px);

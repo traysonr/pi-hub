@@ -14,7 +14,7 @@
     </header>
 
     <main>
-      <section class="tab-panel" id="tab-home" role="tabpanel" aria-labelledby="tabbtn-home">
+      <section class="tab-panel" id="tab-add" role="tabpanel" aria-labelledby="tabbtn-add">
         <div class="card">
           <div class="card-head">
             <h2>TV</h2>
@@ -30,7 +30,7 @@
         </div>
 
         <div class="card">
-          <h2>Add Video</h2>
+          <h2>Add From YouTube</h2>
           <form id="download-form" autocomplete="off">
             <label for="url">YouTube URL</label>
             <div class="row">
@@ -44,19 +44,57 @@
               />
               <button type="submit" id="download-btn">Download</button>
             </div>
+            <div class="form-row">
+              <label class="switch">
+                <input
+                  type="checkbox"
+                  id="audio-only"
+                  name="audio_only"
+                  value="on"
+                />
+                <span class="switch-slider" aria-hidden="true"></span>
+                <span class="switch-label">Audio only (saves to Music)</span>
+              </label>
+            </div>
             <p class="hint" id="download-status">
-              Paste a link and tap Download. Videos are downloaded as 720p H.264
-              for smooth playback on the Pi.
+              Videos download as 720p H.264 to the Video tab. Toggle Audio only
+              to extract best-quality M4A audio into the Music tab instead.
             </p>
           </form>
         </div>
+      </section>
 
+      <section
+        class="tab-panel"
+        id="tab-video"
+        role="tabpanel"
+        aria-labelledby="tabbtn-video"
+        hidden
+      >
         <div class="card">
           <div class="card-head">
-            <h2>Catalogue</h2>
+            <h2>Videos</h2>
             <button type="button" id="refresh-btn" class="ghost">Refresh</button>
           </div>
           <ul id="video-list" class="video-list">
+            <li class="empty">Loading…</li>
+          </ul>
+        </div>
+      </section>
+
+      <section
+        class="tab-panel"
+        id="tab-music"
+        role="tabpanel"
+        aria-labelledby="tabbtn-music"
+        hidden
+      >
+        <div class="card">
+          <div class="card-head">
+            <h2>Music</h2>
+            <button type="button" id="music-refresh-btn" class="ghost">Refresh</button>
+          </div>
+          <ul id="music-list" class="video-list">
             <li class="empty">Loading…</li>
           </ul>
         </div>
@@ -187,14 +225,38 @@
       <button
         type="button"
         class="tabbtn active"
-        id="tabbtn-home"
-        data-tab="home"
+        id="tabbtn-add"
+        data-tab="add"
         role="tab"
         aria-selected="true"
-        aria-controls="tab-home"
+        aria-controls="tab-add"
       >
-        <span class="tab-glyph" aria-hidden="true">&#9775;</span>
-        <span class="tab-label">Home</span>
+        <span class="tab-glyph" aria-hidden="true">+</span>
+        <span class="tab-label">Add</span>
+      </button>
+      <button
+        type="button"
+        class="tabbtn"
+        id="tabbtn-video"
+        data-tab="video"
+        role="tab"
+        aria-selected="false"
+        aria-controls="tab-video"
+      >
+        <span class="tab-glyph" aria-hidden="true">&#9783;</span>
+        <span class="tab-label">Video</span>
+      </button>
+      <button
+        type="button"
+        class="tabbtn"
+        id="tabbtn-music"
+        data-tab="music"
+        role="tab"
+        aria-selected="false"
+        aria-controls="tab-music"
+      >
+        <span class="tab-glyph" aria-hidden="true">&#9835;</span>
+        <span class="tab-label">Music</span>
       </button>
       <button
         type="button"

@@ -4,10 +4,24 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from app.config import VIDEO_DIR, VIDEO_EXTENSIONS
+from app.config import (
+    AUDIO_EXTENSIONS,
+    MUSIC_DIR,
+    VIDEO_DIR,
+    VIDEO_EXTENSIONS,
+)
+
+# How long a file must be idle (no writes) before the catalogue is willing
+# to expose it. yt-dlp's audio extraction streams ffmpeg output directly
+# into the final filename, so the destination file appears as soon as
+# extraction starts -- but reading it then yields a truncated/invalid
+# file. Hiding files whose mtime is very recent avoids surfacing
+# half-written tracks in the UI.
+_MIN_IDLE_SECONDS = 3.0
 
 log = logging.getLogger(__name__)
 
@@ -45,7 +59,7 @@ def _display_title(stem: str) -> str:
 
 
 @dataclass(frozen=True)
-class VideoEntry:
+class MediaEntry:
     filename: str
     title: str
     size_bytes: int
@@ -60,17 +74,22 @@ class VideoEntry:
         }
 
 
-def list_videos() -> list[VideoEntry]:
-    """Return every playable video in the catalogue, newest first."""
+# Backwards-compatible alias: existing code/tests refer to VideoEntry.
+VideoEntry = MediaEntry
 
-    if not VIDEO_DIR.exists():
+
+def _list_dir(directory: Path, extensions: frozenset[str]) -> list[MediaEntry]:
+    """Return every playable file in `directory`, newest first."""
+
+    if not directory.exists():
         return []
 
-    entries: list[VideoEntry] = []
-    for path in VIDEO_DIR.iterdir():
+    now = time.time()
+    entries: list[MediaEntry] = []
+    for path in directory.iterdir():
         if not path.is_file():
             continue
-        if path.suffix.lower() not in VIDEO_EXTENSIONS:
+        if path.suffix.lower() not in extensions:
             continue
         if _is_ytdlp_intermediate(path.name):
             continue
@@ -79,8 +98,12 @@ def list_videos() -> list[VideoEntry]:
         except OSError as exc:
             log.warning("Skipping %s: %s", path, exc)
             continue
+        # Skip files that look like an in-progress write so the UI doesn't
+        # offer half-extracted audio for playback (which mpv refuses).
+        if (now - stat.st_mtime) < _MIN_IDLE_SECONDS:
+            continue
         entries.append(
-            VideoEntry(
+            MediaEntry(
                 filename=path.name,
                 title=_display_title(path.stem),
                 size_bytes=stat.st_size,
@@ -92,24 +115,48 @@ def list_videos() -> list[VideoEntry]:
     return entries
 
 
-def resolve_video(filename: str) -> Path:
-    """Resolve `filename` to an absolute path inside the video directory.
+def _resolve_in(directory: Path, filename: str, kind: str) -> Path:
+    """Resolve `filename` to an absolute path inside `directory`.
 
-    Raises `ValueError` if the path escapes the media directory or the file
-    does not exist / is not a regular file.
+    Raises `ValueError` if the path escapes the directory or the file does
+    not exist / is not a regular file.
     """
 
     if not filename or "\x00" in filename:
         raise ValueError("Invalid filename")
 
-    candidate = (VIDEO_DIR / filename).resolve()
+    candidate = (directory / filename).resolve()
 
     try:
-        candidate.relative_to(VIDEO_DIR)
+        candidate.relative_to(directory)
     except ValueError as exc:
-        raise ValueError("Filename escapes media directory") from exc
+        raise ValueError(f"Filename escapes {kind} directory") from exc
 
     if not candidate.is_file():
-        raise ValueError("Video file not found")
+        raise ValueError(f"{kind.capitalize()} file not found")
 
     return candidate
+
+
+def list_videos() -> list[MediaEntry]:
+    """Return every playable video in the catalogue, newest first."""
+
+    return _list_dir(VIDEO_DIR, VIDEO_EXTENSIONS)
+
+
+def resolve_video(filename: str) -> Path:
+    """Resolve `filename` to an absolute path inside the video directory."""
+
+    return _resolve_in(VIDEO_DIR, filename, "video")
+
+
+def list_music() -> list[MediaEntry]:
+    """Return every playable audio track in the catalogue, newest first."""
+
+    return _list_dir(MUSIC_DIR, AUDIO_EXTENSIONS)
+
+
+def resolve_music(filename: str) -> Path:
+    """Resolve `filename` to an absolute path inside the music directory."""
+
+    return _resolve_in(MUSIC_DIR, filename, "music")

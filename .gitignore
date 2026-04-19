@@ -7,7 +7,13 @@ venv/
 .env
 media/videos/*
 !media/videos/.gitkeep
+media/music/*
+!media/music/.gitkeep
 media/screensaver-cache/
+
+# Local URL lists for scripts/bulk_download.py
+bulk.txt
+*.urls.txt
 secrets/
 config/screensaver-themes.json
 *.log

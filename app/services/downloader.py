@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
-from app.config import PROJECT_ROOT, VIDEO_DIR
+from app.config import MUSIC_DIR, PROJECT_ROOT, VIDEO_DIR
 
 log = logging.getLogger(__name__)
 
@@ -35,6 +35,20 @@ _COOKIES_PATH = Path(
     )
 )
 
+# YouTube periodically rotates its player JS in ways that break yt-dlp's
+# default `web` client (formats are gated behind an n-signature challenge
+# the released yt-dlp can't yet solve, so extraction returns "No video
+# formats found"). The `tv` and `web_embedded` clients use a different
+# player path that consistently exposes the H.264 DASH ladder we need on
+# the Pi 3, so we pin those as our primary + fallback. Empirically tested
+# 2026-04-19 against player `4b0d80ee`: tv -> full ladder, web_embedded
+# -> full ladder, default web -> broken. Override via env if YouTube
+# breaks these next; comma-separated list, tried in order by yt-dlp.
+_YT_PLAYER_CLIENTS = os.environ.get(
+    "PI_HUB_YT_PLAYER_CLIENTS",
+    "tv,web_embedded",
+).strip()
+
 
 def _cookies_file() -> Path | None:
     """Return the cookies path if it exists and is readable, else None."""
@@ -51,12 +65,44 @@ def _yt_dlp_failure_user_message(
     *,
     cookies_path: Path,
     cookies_present: bool,
+    audio_only: bool = False,
 ) -> str:
     """Map yt-dlp stderr to a user-facing string (last few lines only)."""
 
+    full = (stderr or "").lower()
     stderr_tail = (stderr or "").strip().splitlines()[-5:]
     joined = "; ".join(stderr_tail).lower()
+
+    # YouTube sometimes ends with "Requested format is not available" even when
+    # the real problem is failed signature/n challenge solving (no formats listed
+    # except storyboards). Scan the *full* stderr so we don't mis-report as
+    # "no H.264" when extraction never succeeded.
+    extraction_broken = (
+        "nsig extraction failed" in full
+        or "signature solving failed" in full
+        or "n challenge solving failed" in full
+        or "only images are available for download" in full
+        or "forcing sabr streaming" in full
+        or "javascript runtime" in full
+        # New (2026-04) failure mode: nsig solver silently produces no
+        # playable formats and yt-dlp aborts with this generic message.
+        or "no video formats found" in full
+    )
+    if extraction_broken:
+        return (
+            "YouTube format extraction failed (player rotation / nsig / SABR). "
+            "We pin player_client=tv,web_embedded to dodge most of these; "
+            "if it persists, try `PI_HUB_YT_PLAYER_CLIENTS=tv_embedded,mweb` "
+            "or update yt-dlp: `.venv/bin/pip install -U --pre yt-dlp[default] "
+            "yt-dlp-ejs` and re-run. Make sure Deno is on PATH "
+            "(export PATH=\"$HOME/.local/bin:$PATH\")."
+        )
+
     if "requested format is not available" in joined:
+        if audio_only:
+            return (
+                "No downloadable audio stream is available for this URL."
+            )
         return (
             f"No H.264 video at {_MAX_HEIGHT}p or lower is available "
             "for this URL. The Pi 3 can only play H.264 smoothly, so "
@@ -88,20 +134,42 @@ def _yt_dlp_failure_user_message(
     return "; ".join(stderr_tail) or "yt-dlp failed"
 
 
+def _truncate_output(text: str, *, max_lines: int = 80, max_chars: int = 24000) -> str:
+    """Keep the tail of yt-dlp output for debugging without unbounded memory."""
+
+    text = text or ""
+    lines = text.strip().splitlines()
+    if len(lines) > max_lines:
+        omitted = len(lines) - max_lines
+        text = f"... ({omitted} earlier line(s) omitted) ...\n" + "\n".join(lines[-max_lines:])
+    else:
+        text = "\n".join(lines)
+    if len(text) > max_chars:
+        text = "... (truncated) ...\n" + text[-max_chars:]
+    return text
+
+
 @dataclass
 class DownloadJob:
     id: str
     url: str
+    audio_only: bool = False
     status: JobStatus = "queued"
     message: str = ""
     filename: str | None = None
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
+    # Populated on yt-dlp failure for CLI / bulk tooling (not exposed in ``to_dict``).
+    yt_dlp_returncode: int | None = None
+    yt_dlp_stderr: str | None = None
+    yt_dlp_stdout: str | None = None
 
     def to_dict(self) -> dict:
         return {
             "id": self.id,
             "url": self.url,
+            "audio_only": self.audio_only,
+            "kind": "audio" if self.audio_only else "video",
             "status": self.status,
             "message": self.message,
             "filename": self.filename,
@@ -124,15 +192,27 @@ def _set_status(job: DownloadJob, status: JobStatus, message: str = "", filename
 
 
 def _yt_dlp_path() -> str | None:
+    """Resolve the yt-dlp binary, preferring the project venv.
+
+    Without this, ``shutil.which("yt-dlp")`` returns ``/usr/bin/yt-dlp``
+    (the OS-packaged version, often a year+ stale) before the venv's
+    binary, because ``.venv/bin`` is only on ``PATH`` when the venv has
+    been activated. The systemd service and ``scripts/bulk_download.py``
+    both invoke Python directly without sourcing the activate script,
+    so they would silently fall back to the stale system yt-dlp and
+    fail on YouTube's latest player JS rotation. We always look at the
+    venv first so the version pinned in ``requirements.txt`` is what
+    actually runs.
+    """
+
+    venv_binary = PROJECT_ROOT / ".venv" / "bin" / "yt-dlp"
+    if venv_binary.is_file() and os.access(venv_binary, os.X_OK):
+        return str(venv_binary)
     return shutil.which("yt-dlp")
 
 
-def _run_download(job: DownloadJob) -> None:
-    binary = _yt_dlp_path()
-    if binary is None:
-        log.error("yt-dlp binary not found on PATH")
-        _set_status(job, "error", "yt-dlp is not installed on the server")
-        return
+def _build_video_cmd(binary: str) -> tuple[list[str], Path]:
+    """Build the yt-dlp argv for a 720p H.264 video download."""
 
     VIDEO_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -163,6 +243,53 @@ def _run_download(job: DownloadJob) -> None:
         "--merge-output-format", "mp4",
         "-o", output_template,
     ]
+    return cmd, VIDEO_DIR
+
+
+def _build_audio_cmd(binary: str) -> tuple[list[str], Path]:
+    """Build the yt-dlp argv for a best-quality audio extraction.
+
+    We deliberately DO NOT pass ``--audio-format <codec>``. Forcing a
+    specific codec triggers a full ffmpeg re-encode which on a Pi 3
+    takes ~15 minutes for a long track. Instead we let yt-dlp keep the
+    source audio stream as-is (typically Opus in a WebM container, or
+    AAC in M4A), which is just a fast remux. mpv plays both containers
+    natively over the existing HDMI/ALSA pipeline.
+    """
+
+    MUSIC_DIR.mkdir(parents=True, exist_ok=True)
+
+    output_template = str(
+        MUSIC_DIR / "%(title).200B [%(id)s] [audio].%(ext)s"
+    )
+
+    cmd = [
+        binary,
+        "--no-playlist",
+        "--restrict-filenames",
+        "--no-progress",
+        "--newline",
+        "--print", "after_move:filepath",
+        # Prefer m4a when available (so the file plays everywhere with
+        # zero re-encode), then fall back to any best-audio stream.
+        "-f", "bestaudio[ext=m4a]/bestaudio/ba/b",
+        "-x",
+        "-o", output_template,
+    ]
+    return cmd, MUSIC_DIR
+
+
+def _run_download(job: DownloadJob) -> None:
+    binary = _yt_dlp_path()
+    if binary is None:
+        log.error("yt-dlp binary not found on PATH")
+        _set_status(job, "error", "yt-dlp is not installed on the server")
+        return
+
+    if job.audio_only:
+        cmd, _out_dir = _build_audio_cmd(binary)
+    else:
+        cmd, _out_dir = _build_video_cmd(binary)
 
     cookies = _cookies_file()
     if cookies is not None:
@@ -175,10 +302,39 @@ def _run_download(job: DownloadJob) -> None:
             _COOKIES_PATH,
         )
 
+    # See _YT_PLAYER_CLIENTS comment: pin to clients whose player path is
+    # currently working, so a YouTube-side player rotation doesn't silently
+    # turn every download into "No video formats found".
+    if _YT_PLAYER_CLIENTS:
+        cmd.extend([
+            "--extractor-args",
+            f"youtube:player_client={_YT_PLAYER_CLIENTS}",
+        ])
+        log.info("Using YouTube player_client=%s", _YT_PLAYER_CLIENTS)
+
     cmd.append(job.url)
 
     _set_status(job, "downloading", "Starting download")
-    log.info("Download starting: id=%s url=%s", job.id, job.url)
+    log.info(
+        "Download starting: id=%s kind=%s url=%s",
+        job.id,
+        "audio" if job.audio_only else "video",
+        job.url,
+    )
+
+    # Make sure yt-dlp can find Deno. Deno is required for solving
+    # YouTube's nsig JS challenges; without it on PATH, the venv yt-dlp
+    # silently falls back to the bundled regex extractor which breaks on
+    # every player rotation. The user's interactive shell already has
+    # ~/.local/bin on PATH (via .profile), but the systemd unit running
+    # the web UI may not, so we union it in unconditionally.
+    env = os.environ.copy()
+    extra_paths = []
+    home_local = Path.home() / ".local" / "bin"
+    if home_local.is_dir():
+        extra_paths.append(str(home_local))
+    if extra_paths:
+        env["PATH"] = os.pathsep.join(extra_paths + [env.get("PATH", "")])
 
     try:
         completed = subprocess.run(
@@ -187,21 +343,34 @@ def _run_download(job: DownloadJob) -> None:
             capture_output=True,
             text=True,
             timeout=60 * 60,
+            env=env,
         )
     except subprocess.TimeoutExpired:
         log.exception("Download timed out: id=%s", job.id)
+        job.yt_dlp_returncode = None
+        job.yt_dlp_stderr = "Download timed out after 60 minutes (subprocess killed)."
+        job.yt_dlp_stdout = None
         _set_status(job, "error", "Download timed out")
         return
     except OSError as exc:
         log.exception("Download failed to start: id=%s", job.id)
+        job.yt_dlp_returncode = None
+        job.yt_dlp_stderr = str(exc)
+        job.yt_dlp_stdout = None
         _set_status(job, "error", f"Failed to start yt-dlp: {exc}")
         return
 
     if completed.returncode != 0:
+        stderr_raw = completed.stderr or ""
+        stdout_raw = completed.stdout or ""
+        job.yt_dlp_returncode = completed.returncode
+        job.yt_dlp_stderr = _truncate_output(stderr_raw)
+        job.yt_dlp_stdout = _truncate_output(stdout_raw) if stdout_raw.strip() else None
         message = _yt_dlp_failure_user_message(
-            completed.stderr or "",
+            stderr_raw,
             cookies_path=_COOKIES_PATH,
             cookies_present=_cookies_file() is not None,
+            audio_only=job.audio_only,
         )
         log.warning(
             "Download failed: id=%s rc=%s msg=%s",
@@ -219,10 +388,10 @@ def _run_download(job: DownloadJob) -> None:
     _set_status(job, "success", "Download complete", filename=filename)
 
 
-def start_download(url: str) -> DownloadJob:
+def start_download(url: str, *, audio_only: bool = False) -> DownloadJob:
     """Create a job and start the download in a background thread."""
 
-    job = DownloadJob(id=uuid.uuid4().hex, url=url)
+    job = DownloadJob(id=uuid.uuid4().hex, url=url, audio_only=audio_only)
     with _jobs_lock:
         _jobs[job.id] = job
 
