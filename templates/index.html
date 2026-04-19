@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#101418" />
+    <title>Pi Hub</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <h1>Pi Hub</h1>
+      <div class="status" id="player-status" aria-live="polite">idle</div>
+    </header>
+
+    <main>
+      <section class="tab-panel" id="tab-home" role="tabpanel" aria-labelledby="tabbtn-home">
+        <div class="card">
+          <div class="card-head">
+            <h2>TV</h2>
+            <div class="tv-actions">
+              <button type="button" id="tv-wake-btn">Wake TV</button>
+              <button type="button" id="tv-sleep-btn" class="ghost danger">Sleep TV</button>
+            </div>
+          </div>
+          <p class="hint" id="tv-status">
+            Wake powers the TV on and switches to this input. It also runs
+            automatically when you play a video.
+          </p>
+        </div>
+
+        <div class="card">
+          <h2>Add Video</h2>
+          <form id="download-form" autocomplete="off">
+            <label for="url">YouTube URL</label>
+            <div class="row">
+              <input
+                id="url"
+                name="url"
+                type="url"
+                inputmode="url"
+                placeholder="https://www.youtube.com/watch?v=..."
+                required
+              />
+              <button type="submit" id="download-btn">Download</button>
+            </div>
+            <p class="hint" id="download-status">
+              Paste a link and tap Download. Videos are downloaded as 720p H.264
+              for smooth playback on the Pi.
+            </p>
+          </form>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h2>Catalogue</h2>
+            <button type="button" id="refresh-btn" class="ghost">Refresh</button>
+          </div>
+          <ul id="video-list" class="video-list">
+            <li class="empty">Loading…</li>
+          </ul>
+        </div>
+      </section>
+
+      <section
+        class="tab-panel"
+        id="tab-remote"
+        role="tabpanel"
+        aria-labelledby="tabbtn-remote"
+        hidden
+      >
+        <div class="card remote">
+          <div class="remote-header">
+            <h2>TV Remote</h2>
+            <div class="now-playing" id="now-playing">Nothing playing</div>
+          </div>
+
+          <div class="remote-grid">
+            <button type="button" class="remote-btn skip" data-seek="-60" aria-label="Back 1 minute">
+              <span class="glyph">&laquo;</span>
+              <span class="lbl">1 min</span>
+            </button>
+            <button type="button" class="remote-btn skip" data-seek="-15" aria-label="Back 15 seconds">
+              <span class="glyph">&lsaquo;</span>
+              <span class="lbl">15 sec</span>
+            </button>
+            <button type="button" class="remote-btn primary" id="pause-btn" aria-label="Pause or play">
+              <span class="glyph" id="pause-glyph">&#10074;&#10074;</span>
+              <span class="lbl" id="pause-label">Pause</span>
+            </button>
+            <button type="button" class="remote-btn skip" data-seek="15" aria-label="Forward 15 seconds">
+              <span class="glyph">&rsaquo;</span>
+              <span class="lbl">15 sec</span>
+            </button>
+            <button type="button" class="remote-btn skip" data-seek="60" aria-label="Forward 1 minute">
+              <span class="glyph">&raquo;</span>
+              <span class="lbl">1 min</span>
+            </button>
+          </div>
+
+          <div class="remote-row">
+            <button type="button" class="remote-btn vol" data-volume="-10" aria-label="Volume down">
+              <span class="glyph">&minus;</span>
+              <span class="lbl">Vol</span>
+            </button>
+            <div class="vol-readout" id="vol-readout">--</div>
+            <button type="button" class="remote-btn vol" data-volume="10" aria-label="Volume up">
+              <span class="glyph">+</span>
+              <span class="lbl">Vol</span>
+            </button>
+          </div>
+
+          <div class="remote-row">
+            <button type="button" class="remote-btn stop" id="stop-btn-remote">
+              <span class="glyph">&#9632;</span>
+              <span class="lbl">Stop playback</span>
+            </button>
+          </div>
+
+          <p class="hint" id="remote-status" aria-live="polite"></p>
+        </div>
+      </section>
+    </main>
+
+    <nav class="tabbar" role="tablist" aria-label="Sections">
+      <button
+        type="button"
+        class="tabbtn active"
+        id="tabbtn-home"
+        data-tab="home"
+        role="tab"
+        aria-selected="true"
+        aria-controls="tab-home"
+      >
+        <span class="tab-glyph">&#9775;</span>
+        <span class="tab-label">Home</span>
+      </button>
+      <button
+        type="button"
+        class="tabbtn"
+        id="tabbtn-remote"
+        data-tab="remote"
+        role="tab"
+        aria-selected="false"
+        aria-controls="tab-remote"
+      >
+        <span class="tab-glyph">&#9654;</span>
+        <span class="tab-label">Remote</span>
+      </button>
+    </nav>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>

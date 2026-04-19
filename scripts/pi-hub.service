@@ -1,0 +1,38 @@
+[Unit]
+Description=Pi Hub media server (FastAPI + uvicorn)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=gilberto
+Group=gilberto
+WorkingDirectory=/home/gilberto/pi-hub
+
+# Make sure the service can find the venv binaries first, then system mpv/ffmpeg/yt-dlp.
+Environment=PATH=/home/gilberto/pi-hub/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=PYTHONUNBUFFERED=1
+Environment=PI_HUB_HOST=0.0.0.0
+Environment=PI_HUB_PORT=8000
+Environment=PI_HUB_YT_COOKIES=/home/gilberto/pi-hub/secrets/youtube-cookies.txt
+
+ExecStart=/home/gilberto/pi-hub/.venv/bin/python -m uvicorn app.main:app --host ${PI_HUB_HOST} --port ${PI_HUB_PORT}
+
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=10
+
+# Light hardening that doesn't break mpv/HDMI access.
+# Note: we deliberately don't enable ProtectHome — the app needs to read the
+# project files and write into media/videos under /home/gilberto.
+NoNewPrivileges=true
+ProtectSystem=full
+ReadWritePaths=/home/gilberto/pi-hub
+PrivateTmp=false
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pi-hub
+
+[Install]
+WantedBy=multi-user.target
