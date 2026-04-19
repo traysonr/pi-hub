@@ -19,12 +19,22 @@
     tvWakeBtn: document.getElementById("tv-wake-btn"),
     tvSleepBtn: document.getElementById("tv-sleep-btn"),
     tvStatus: document.getElementById("tv-status"),
+    ssEnabled: document.getElementById("ss-enabled"),
+    ssStatus: document.getElementById("ss-status"),
+    ssStartBtn: document.getElementById("ss-start-btn"),
+    ssStopBtn: document.getElementById("ss-stop-btn"),
+    ssRefreshBtn: document.getElementById("ss-refresh-btn"),
+    ssReloadBtn: document.getElementById("ss-reload-btn"),
+    ssThemes: document.getElementById("ss-themes"),
+    ssMeta: document.getElementById("ss-meta"),
     tabs: {
       home: document.getElementById("tab-home"),
+      screensaver: document.getElementById("tab-screensaver"),
       remote: document.getElementById("tab-remote"),
     },
     tabBtns: {
       home: document.getElementById("tabbtn-home"),
+      screensaver: document.getElementById("tabbtn-screensaver"),
       remote: document.getElementById("tabbtn-remote"),
     },
   };
@@ -86,7 +96,7 @@
   // ---- Tabs ---------------------------------------------------------------
 
   function showTab(name) {
-    if (name !== "home" && name !== "remote") return;
+    if (!Object.prototype.hasOwnProperty.call(els.tabs, name)) return;
     currentTab = name;
     for (const key of Object.keys(els.tabs)) {
       const isActive = key === name;
@@ -98,6 +108,9 @@
     if (name === "remote") {
       // Refresh the snapshot so the readout matches reality on entry.
       refreshPlayerStatus();
+    }
+    if (name === "screensaver") {
+      refreshScreensaver();
     }
   }
 
@@ -469,6 +482,194 @@
       setStatus(els.downloadStatus, `Lost track of job: ${err.message}`, "error");
       activeJobId = null;
     }
+  }
+
+  // ---- Screensaver --------------------------------------------------------
+
+  function fmtRelative(epochSec) {
+    if (!epochSec) return "never";
+    const seconds = Math.max(0, Math.floor(Date.now() / 1000 - epochSec));
+    if (seconds < 60) return `${seconds}s ago`;
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+    return `${Math.floor(seconds / 86400)}d ago`;
+  }
+
+  function renderScreensaver(state) {
+    if (!state) return;
+
+    if (els.ssEnabled) els.ssEnabled.checked = !!state.enabled;
+
+    const bits = [];
+    if (state.video_playing) {
+      bits.push("video playing");
+    } else if (state.running) {
+      bits.push("slideshow running");
+    } else if (state.enabled) {
+      // Enabled + nothing on screen means we're showing the yellow
+      // fallback (likely no cached images yet). Surface that explicitly
+      // so the user understands why the TV isn't slideshowing.
+      bits.push("yellow (no images cached)");
+    } else {
+      bits.push("disabled (showing yellow)");
+    }
+    if (state.image_seconds) bits.push(`${state.image_seconds}s/slide`);
+    if (state.last_refresh_at) {
+      bits.push(`refreshed ${fmtRelative(state.last_refresh_at)}`);
+    }
+    setStatus(els.ssStatus, bits.join(" \u00b7 "));
+    if (state.last_error) {
+      setStatus(els.ssStatus, state.last_error, "error");
+    }
+
+    if (els.ssMeta) {
+      const totalCached = (state.themes || []).reduce(
+        (sum, t) => sum + (t.cached_images || 0),
+        0
+      );
+      els.ssMeta.textContent = `${totalCached} images cached`;
+    }
+
+    els.ssStartBtn.disabled = !state.enabled || state.running || state.video_playing;
+    els.ssStopBtn.disabled = !state.running;
+
+    renderThemes(state.themes || []);
+  }
+
+  function renderThemes(themes) {
+    els.ssThemes.innerHTML = "";
+    if (themes.length === 0) {
+      const li = document.createElement("li");
+      li.className = "empty";
+      li.textContent = "No themes configured.";
+      els.ssThemes.appendChild(li);
+      return;
+    }
+    for (const theme of themes) {
+      const li = document.createElement("li");
+      li.className = "theme";
+
+      const meta = document.createElement("div");
+      meta.className = "meta";
+      const title = document.createElement("span");
+      title.className = "title";
+      title.textContent = theme.name;
+      const sub = document.createElement("span");
+      sub.className = "sub";
+      sub.textContent = `r/${theme.subreddit} \u00b7 ${theme.cached_images || 0} cached`;
+      meta.appendChild(title);
+      meta.appendChild(sub);
+
+      const toggle = document.createElement("button");
+      toggle.type = "button";
+      toggle.className = theme.enabled ? "play-btn" : "ghost";
+      toggle.textContent = theme.enabled ? "On" : "Off";
+      toggle.addEventListener("click", () => toggleTheme(theme.name, toggle));
+
+      li.appendChild(meta);
+      li.appendChild(toggle);
+      els.ssThemes.appendChild(li);
+    }
+  }
+
+  async function refreshScreensaver() {
+    try {
+      const data = await api("/api/screensaver");
+      renderScreensaver(data);
+    } catch (err) {
+      setStatus(els.ssStatus, `Failed to load: ${err.message}`, "error");
+    }
+  }
+
+  async function toggleTheme(name, btn) {
+    if (btn) btn.disabled = true;
+    try {
+      const data = await api(
+        `/api/screensaver/themes/${encodeURIComponent(name)}/toggle`,
+        { method: "POST" }
+      );
+      renderScreensaver(data);
+    } catch (err) {
+      setStatus(els.ssStatus, `Toggle failed: ${err.message}`, "error");
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  if (els.ssEnabled) {
+    els.ssEnabled.addEventListener("change", async () => {
+      const enabled = els.ssEnabled.checked;
+      try {
+        const data = await api("/api/screensaver/enabled", {
+          method: "POST",
+          body: JSON.stringify({ enabled }),
+        });
+        renderScreensaver(data);
+      } catch (err) {
+        els.ssEnabled.checked = !enabled;
+        setStatus(els.ssStatus, `Failed: ${err.message}`, "error");
+      }
+    });
+  }
+
+  if (els.ssStartBtn) {
+    els.ssStartBtn.addEventListener("click", async () => {
+      els.ssStartBtn.disabled = true;
+      setStatus(els.ssStatus, "Starting…");
+      try {
+        const data = await api("/api/screensaver/start", { method: "POST" });
+        renderScreensaver(data);
+      } catch (err) {
+        setStatus(els.ssStatus, err.message, "error");
+        refreshScreensaver();
+      }
+    });
+  }
+
+  if (els.ssStopBtn) {
+    els.ssStopBtn.addEventListener("click", async () => {
+      els.ssStopBtn.disabled = true;
+      try {
+        const data = await api("/api/screensaver/stop", { method: "POST" });
+        renderScreensaver(data);
+      } catch (err) {
+        setStatus(els.ssStatus, `Stop failed: ${err.message}`, "error");
+        refreshScreensaver();
+      }
+    });
+  }
+
+  if (els.ssRefreshBtn) {
+    els.ssRefreshBtn.addEventListener("click", async () => {
+      els.ssRefreshBtn.disabled = true;
+      const originalText = els.ssRefreshBtn.textContent;
+      els.ssRefreshBtn.textContent = "Refreshing…";
+      setStatus(els.ssStatus, "Fetching images from Reddit…");
+      try {
+        const data = await api("/api/screensaver/refresh", { method: "POST" });
+        renderScreensaver(data);
+      } catch (err) {
+        setStatus(els.ssStatus, `Refresh failed: ${err.message}`, "error");
+      } finally {
+        els.ssRefreshBtn.disabled = false;
+        els.ssRefreshBtn.textContent = originalText;
+      }
+    });
+  }
+
+  if (els.ssReloadBtn) {
+    els.ssReloadBtn.addEventListener("click", async () => {
+      els.ssReloadBtn.disabled = true;
+      try {
+        const data = await api("/api/screensaver/reload", { method: "POST" });
+        renderScreensaver(data);
+        setStatus(els.ssStatus, "Config reloaded", "success");
+      } catch (err) {
+        setStatus(els.ssStatus, `Reload failed: ${err.message}`, "error");
+      } finally {
+        els.ssReloadBtn.disabled = false;
+      }
+    });
   }
 
   // ---- Boot ---------------------------------------------------------------

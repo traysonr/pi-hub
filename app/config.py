@@ -12,9 +12,23 @@ MEDIA_DIR: Path = Path(
     os.environ.get("PI_HUB_MEDIA_DIR", PROJECT_ROOT / "media")
 ).resolve()
 VIDEO_DIR: Path = (MEDIA_DIR / "videos").resolve()
+SCREENSAVER_CACHE_DIR: Path = (MEDIA_DIR / "screensaver-cache").resolve()
 
 TEMPLATES_DIR: Path = PROJECT_ROOT / "templates"
 STATIC_DIR: Path = PROJECT_ROOT / "static"
+
+CONFIG_DIR: Path = Path(
+    os.environ.get("PI_HUB_CONFIG_DIR", PROJECT_ROOT / "config")
+).resolve()
+SCREENSAVER_THEMES_FILE: Path = Path(
+    os.environ.get(
+        "PI_HUB_SCREENSAVER_THEMES",
+        str(CONFIG_DIR / "screensaver-themes.json"),
+    )
+).resolve()
+SCREENSAVER_THEMES_EXAMPLE: Path = (
+    CONFIG_DIR / "screensaver-themes.json.example"
+).resolve()
 
 # Extensions that the catalogue treats as playable video files.
 VIDEO_EXTENSIONS: frozenset[str] = frozenset(
@@ -26,6 +40,8 @@ def ensure_runtime_dirs() -> None:
     """Create directories that the app expects to exist at runtime."""
 
     VIDEO_DIR.mkdir(parents=True, exist_ok=True)
+    SCREENSAVER_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def configure_logging() -> None:

@@ -1,0 +1,8 @@
+{
+  "image_seconds": 60,
+  "themes": [
+    {"name": "Watercolor", "subreddit": "Watercolor", "enabled": true},
+    {"name": "EarthPorn", "subreddit": "EarthPorn", "enabled": true},
+    {"name": "ArtPorn", "subreddit": "ArtPorn", "enabled": true}
+  ]
+}

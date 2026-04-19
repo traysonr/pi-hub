@@ -8,7 +8,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Path as PathParam
 from pydantic import BaseModel, Field, field_validator
 
-from app.services import catalogue, cec, downloader, player
+from app.services import catalogue, cec, downloader, player, screensaver
 
 log = logging.getLogger(__name__)
 
@@ -104,6 +104,13 @@ def post_play(payload: PlayRequest) -> dict[str, Any]:
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    # No more process kill / spawn handoff: the persistent display
+    # controller swaps the slideshow/yellow content for the requested
+    # video over IPC, so the TV never falls back to the Linux console
+    # between modes. Recording the prior screensaver state is still
+    # useful for log analysis.
+    was_slideshow = screensaver.stop_for_video()
+
     # Wake/switch the TV in the background so playback never waits on the
     # CEC bus. Failures are logged but don't block playback.
     cec.wake_async()
@@ -115,7 +122,9 @@ def post_play(payload: PlayRequest) -> dict[str, Any]:
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
-    log.info("Playing %s (pid=%s)", path.name, pid)
+    log.info(
+        "Playing %s (pid=%s, was_slideshow=%s)", path.name, pid, was_slideshow
+    )
     return {"status": "playing", "filename": path.name, "pid": pid}
 
 

@@ -15,13 +15,28 @@
   --radius: 12px;
   --radius-lg: 18px;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --tabbar-h: 64px;
+  --tabbar-h: 56px;
+
+  /* Fluid sizing tokens. clamp(min, preferred, max) lets every metric scale
+     smoothly between phones and desktop without media-query cliffs. */
+  --pad-page: clamp(10px, 3.5vw, 20px);
+  --pad-card: clamp(12px, 3.5vw, 18px);
+  --gap-stack: clamp(10px, 2.5vw, 16px);
+  --fs-h1: clamp(1rem, 3.6vw, 1.2rem);
+  --fs-h2: clamp(0.95rem, 3vw, 1.05rem);
+  --fs-body: clamp(0.9rem, 2.6vw, 1rem);
+  --fs-small: clamp(0.72rem, 2.2vw, 0.85rem);
+  --fs-tiny: clamp(0.65rem, 2vw, 0.78rem);
+
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial,
     sans-serif;
+  font-size: 16px;
 }
 
 * {
   box-sizing: border-box;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 html,
@@ -31,19 +46,33 @@ body {
   background: var(--bg);
   color: var(--text);
   min-height: 100vh;
+  /* Prevent any single overflowing element from collapsing the layout
+     viewport (the symptom that made the page span only the topbar width). */
+  overflow-x: hidden;
+  overscroll-behavior-y: contain;
   -webkit-tap-highlight-color: transparent;
 }
 
 body {
   /* Reserve space for the bottom tab bar so content never hides behind it. */
-  padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px));
+  padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px) + 8px);
+  font-size: var(--fs-body);
+  line-height: 1.45;
+}
+
+img,
+svg,
+video {
+  max-width: 100%;
+  height: auto;
 }
 
 .topbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 18px;
+  gap: 10px;
+  padding: clamp(10px, 3vw, 14px) var(--pad-page);
   background: var(--surface);
   border-bottom: 1px solid var(--border);
   position: sticky;
@@ -53,13 +82,18 @@ body {
 
 .topbar h1 {
   margin: 0;
-  font-size: 1.15rem;
+  font-size: var(--fs-h1);
   font-weight: 600;
   letter-spacing: 0.02em;
+  flex: 0 1 auto;
+  min-width: 0;
+  white-space: nowrap;
 }
 
 .status {
-  font-size: 0.8rem;
+  flex: 0 1 auto;
+  min-width: 0;
+  font-size: var(--fs-tiny);
   color: var(--muted);
   padding: 4px 10px;
   border-radius: 999px;
@@ -82,14 +116,16 @@ body {
 
 main {
   display: block;
-  padding: 16px;
+  padding: var(--pad-page);
   max-width: 720px;
   margin: 0 auto;
+  width: 100%;
 }
 
 .tab-panel {
   display: grid;
-  gap: 16px;
+  gap: var(--gap-stack);
+  min-width: 0;
 }
 
 .tab-panel[hidden] {
@@ -100,13 +136,14 @@ main {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 16px;
+  padding: var(--pad-card);
   box-shadow: var(--shadow);
+  min-width: 0;
 }
 
 .card h2 {
   margin: 0 0 12px;
-  font-size: 1rem;
+  font-size: var(--fs-h2);
   font-weight: 600;
   letter-spacing: 0.02em;
 }
@@ -115,11 +152,16 @@ main {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 10px;
   margin-bottom: 12px;
+  flex-wrap: wrap;
+  min-width: 0;
 }
 
 .card-head h2 {
   margin: 0;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .tv-actions {
@@ -127,16 +169,17 @@ main {
   gap: 8px;
   flex-wrap: wrap;
   justify-content: flex-end;
+  flex: 0 1 auto;
 }
 
 .tv-actions button {
   padding: 8px 14px;
-  font-size: 0.85rem;
+  font-size: var(--fs-small);
 }
 
 label {
   display: block;
-  font-size: 0.8rem;
+  font-size: var(--fs-tiny);
   color: var(--muted);
   margin-bottom: 6px;
 }
@@ -145,21 +188,28 @@ label {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+  min-width: 0;
 }
 
 .row > input {
-  flex: 1 1 220px;
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.row > button {
+  flex: 0 1 auto;
 }
 
 input[type="url"],
 input[type="text"] {
+  width: 100%;
   min-width: 0;
   padding: 12px 14px;
   background: var(--surface-2);
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  font-size: 1rem;
+  font-size: var(--fs-body);
   outline: none;
   transition: border-color 0.15s ease;
 }
@@ -174,13 +224,15 @@ button {
   border: none;
   background: var(--accent);
   color: white;
-  padding: 12px 16px;
-  font-size: 0.95rem;
+  padding: 10px 16px;
+  font-size: var(--fs-small);
   font-weight: 600;
   border-radius: var(--radius);
   cursor: pointer;
   transition: background 0.15s ease, transform 0.05s ease;
   font-family: inherit;
+  line-height: 1.2;
+  min-height: 36px;
 }
 
 button:hover {
@@ -201,7 +253,7 @@ button.ghost {
   color: var(--text);
   border: 1px solid var(--border);
   padding: 8px 12px;
-  font-size: 0.85rem;
+  font-size: var(--fs-small);
 }
 
 button.ghost:hover {
@@ -216,8 +268,18 @@ button.ghost.danger {
 .hint {
   margin: 10px 0 0;
   color: var(--muted);
-  font-size: 0.85rem;
+  font-size: var(--fs-small);
   min-height: 1em;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.hint code {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-size: 0.92em;
 }
 
 .hint.error {
@@ -240,7 +302,7 @@ button.ghost.danger {
 
 .video-list li.empty {
   color: var(--muted);
-  font-size: 0.9rem;
+  font-size: var(--fs-small);
   padding: 8px 4px;
 }
 
@@ -248,21 +310,23 @@ button.ghost.danger {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
   padding: 10px 12px;
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: var(--radius);
+  flex-wrap: wrap;
+  min-width: 0;
 }
 
 .video-list .meta {
   min-width: 0;
-  flex: 1;
+  flex: 1 1 160px;
 }
 
 .video-list .title {
   display: block;
-  font-size: 0.95rem;
+  font-size: var(--fs-body);
   font-weight: 500;
   white-space: nowrap;
   overflow: hidden;
@@ -271,28 +335,49 @@ button.ghost.danger {
 
 .video-list .sub {
   display: block;
-  font-size: 0.75rem;
+  font-size: var(--fs-tiny);
   color: var(--muted);
   margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .video-list .actions {
   display: flex;
   gap: 6px;
-  flex-shrink: 0;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .video-list .play-btn,
 .video-list .delete-btn {
   padding: 8px 12px;
-  font-size: 0.85rem;
+  font-size: var(--fs-small);
+  min-height: 36px;
+}
+
+/* On narrow screens drop the action row to its own line; left-aligned so
+   Play sits directly under the title. */
+@media (max-width: 480px) {
+  .video-list li.video {
+    align-items: flex-start;
+  }
+  .video-list .meta {
+    flex-basis: 100%;
+  }
+  .video-list .actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
 }
 
 /* --- Remote --- */
 
 .remote {
   display: grid;
-  gap: 18px;
+  gap: clamp(12px, 3vw, 18px);
 }
 
 .remote-header {
@@ -301,12 +386,14 @@ button.ghost.danger {
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
+  min-width: 0;
 }
 
 .now-playing {
-  font-size: 0.85rem;
+  font-size: var(--fs-small);
   color: var(--muted);
-  max-width: 100%;
+  flex: 1 1 100%;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -314,14 +401,14 @@ button.ghost.danger {
 
 .remote-grid {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 8px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: clamp(4px, 1.6vw, 10px);
 }
 
 .remote-row {
   display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: clamp(6px, 2vw, 10px);
   align-items: center;
 }
 
@@ -332,7 +419,7 @@ button.ghost.danger {
 .vol-readout {
   text-align: center;
   font-variant-numeric: tabular-nums;
-  font-size: 1rem;
+  font-size: var(--fs-body);
   color: var(--muted);
   min-width: 56px;
   padding: 8px 12px;
@@ -347,14 +434,15 @@ button.ghost.danger {
   align-items: center;
   justify-content: center;
   gap: 2px;
-  padding: 18px 8px;
+  padding: clamp(10px, 2.4vw, 18px) 4px;
   background: var(--surface-2);
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   font-weight: 600;
-  font-size: 0.85rem;
-  min-height: 72px;
+  font-size: var(--fs-small);
+  min-height: clamp(56px, 14vw, 84px);
+  min-width: 0;
 }
 
 .remote-btn:hover {
@@ -362,15 +450,17 @@ button.ghost.danger {
 }
 
 .remote-btn .glyph {
-  font-size: 1.7rem;
+  font-size: clamp(1.2rem, 5vw, 1.9rem);
   line-height: 1;
 }
 
 .remote-btn .lbl {
-  font-size: 0.72rem;
+  font-size: var(--fs-tiny);
   color: var(--muted);
   font-weight: 500;
   letter-spacing: 0.02em;
+  white-space: nowrap;
+  max-width: 100%;
 }
 
 .remote-btn.primary {
@@ -406,6 +496,135 @@ button.ghost.danger {
   opacity: 0.45;
 }
 
+/* --- Screensaver --- */
+
+.ss-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.ss-actions button {
+  padding: 10px 14px;
+  font-size: var(--fs-small);
+}
+
+.theme-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.theme-list li.empty {
+  color: var(--muted);
+  font-size: var(--fs-small);
+  padding: 8px 4px;
+}
+
+.theme-list li.theme {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.theme-list .meta {
+  min-width: 0;
+  flex: 1 1 160px;
+}
+
+.theme-list .title {
+  display: block;
+  font-size: var(--fs-body);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.theme-list .sub {
+  display: block;
+  font-size: var(--fs-tiny);
+  color: var(--muted);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.theme-list button {
+  min-width: 56px;
+  padding: 8px 12px;
+  font-size: var(--fs-small);
+  flex: 0 0 auto;
+}
+
+/* Toggle switch (used for screensaver enabled flag). */
+
+.switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.switch input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.switch-slider {
+  position: relative;
+  width: 44px;
+  height: 24px;
+  background: var(--surface-3);
+  border-radius: 999px;
+  transition: background 0.15s ease;
+  flex-shrink: 0;
+}
+
+.switch-slider::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  background: var(--text);
+  border-radius: 50%;
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.switch input:checked + .switch-slider {
+  background: var(--accent);
+}
+
+.switch input:checked + .switch-slider::after {
+  transform: translateX(20px);
+  background: white;
+}
+
+.switch input:focus-visible + .switch-slider {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.switch-label {
+  font-size: var(--fs-small);
+  color: var(--muted);
+}
+
 /* --- Tab bar --- */
 
 .tabbar {
@@ -414,7 +633,9 @@ button.ghost.danger {
   left: 0;
   right: 0;
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* minmax(0, 1fr) is the critical fix that lets the wide "Screensaver"
+     label shrink to fit instead of forcing the row to wrap. */
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   background: var(--surface);
   border-top: 1px solid var(--border);
   padding-bottom: env(safe-area-inset-bottom, 0px);
@@ -431,11 +652,14 @@ button.ghost.danger {
   color: var(--muted);
   border: none;
   border-radius: 0;
-  padding: 10px 8px;
-  font-size: 0.75rem;
+  padding: 6px 4px;
+  font-size: clamp(0.62rem, 2.6vw, 0.78rem);
   font-weight: 500;
   height: var(--tabbar-h);
+  min-width: 0;
+  min-height: 0;
   position: relative;
+  overflow: hidden;
 }
 
 .tabbtn:hover {
@@ -459,14 +683,23 @@ button.ghost.danger {
 }
 
 .tabbtn .tab-glyph {
-  font-size: 1.2rem;
+  font-size: clamp(1rem, 4.5vw, 1.25rem);
   line-height: 1;
+}
+
+.tabbtn .tab-label {
+  display: block;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.1;
 }
 
 .tabbtn.has-badge::after {
   content: "";
   position: absolute;
-  top: 12px;
+  top: 8px;
   right: calc(50% - 22px);
   width: 8px;
   height: 8px;
@@ -477,52 +710,9 @@ button.ghost.danger {
 
 /* --- Responsive tweaks --- */
 
-@media (max-width: 480px) {
-  main {
-    padding: 12px;
-  }
-
-  .topbar {
-    padding: 12px 14px;
-  }
-
-  .topbar h1 {
-    font-size: 1rem;
-  }
-
-  .remote-grid {
-    grid-template-columns: repeat(5, 1fr);
-    gap: 6px;
-  }
-
-  .remote-btn {
-    padding: 14px 4px;
-    min-height: 64px;
-    font-size: 0.78rem;
-  }
-
-  .remote-btn .glyph {
-    font-size: 1.4rem;
-  }
-
-  .remote-btn .lbl {
-    font-size: 0.66rem;
-  }
-
-  .video-list li.video {
-    flex-wrap: wrap;
-  }
-
-  .video-list .actions {
-    width: 100%;
-    justify-content: flex-end;
-  }
-}
-
 @media (min-width: 720px) {
-  .remote-grid {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-    gap: 12px;
+  :root {
+    --tabbar-h: 64px;
   }
 
   .remote-btn {
@@ -533,12 +723,26 @@ button.ghost.danger {
   .remote-btn .glyph {
     font-size: 2rem;
   }
+
+  .tabbtn {
+    padding: 10px 8px;
+  }
 }
 
 @media (hover: none) {
-  /* Tighter active feedback on touch devices. */
   .remote-btn:active,
-  .tabbtn:active {
+  .tabbtn:active,
+  button:active {
     background: var(--surface-3);
+  }
+}
+
+@media (orientation: landscape) and (max-height: 480px) {
+  :root {
+    --tabbar-h: 48px;
+  }
+  .topbar {
+    padding-top: 6px;
+    padding-bottom: 6px;
   }
 }

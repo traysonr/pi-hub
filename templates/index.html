@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#101418" />
     <title>Pi Hub</title>
-    <link rel="stylesheet" href="/static/style.css" />
+    <link rel="stylesheet" href="/static/style.css?v={{ css_version }}" />
   </head>
   <body>
     <header class="topbar">
@@ -64,6 +64,55 @@
 
       <section
         class="tab-panel"
+        id="tab-screensaver"
+        role="tabpanel"
+        aria-labelledby="tabbtn-screensaver"
+        hidden
+      >
+        <div class="card">
+          <div class="card-head">
+            <h2>Screensaver</h2>
+            <label class="switch">
+              <input type="checkbox" id="ss-enabled" />
+              <span class="switch-slider" aria-hidden="true"></span>
+              <span class="switch-label">Enabled</span>
+            </label>
+          </div>
+          <p class="hint" id="ss-status">
+            When enabled, the TV idles into the slideshow (and returns to it
+            automatically after a video ends). When disabled, the TV idles into
+            a solid yellow placeholder. The Linux console is never shown either
+            way. The screensaver never wakes the TV on its own.
+          </p>
+
+          <div class="ss-actions">
+            <button type="button" id="ss-start-btn">Start now</button>
+            <button type="button" id="ss-stop-btn" class="ghost">Stop</button>
+            <button type="button" id="ss-refresh-btn" class="ghost">Refresh images</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h2>Themes</h2>
+            <span class="hint" id="ss-meta"></span>
+          </div>
+          <ul id="ss-themes" class="theme-list">
+            <li class="empty">Loading…</li>
+          </ul>
+          <p class="hint">
+            Themes are subreddits. Edit
+            <code>config/screensaver-themes.json</code> on the Pi to add or
+            remove themes (then press Reload).
+          </p>
+          <div class="ss-actions">
+            <button type="button" id="ss-reload-btn" class="ghost">Reload config</button>
+          </div>
+        </div>
+      </section>
+
+      <section
+        class="tab-panel"
         id="tab-remote"
         role="tabpanel"
         aria-labelledby="tabbtn-remote"
@@ -77,42 +126,42 @@
 
           <div class="remote-grid">
             <button type="button" class="remote-btn skip" data-seek="-60" aria-label="Back 1 minute">
-              <span class="glyph">&laquo;</span>
-              <span class="lbl">1 min</span>
+              <span class="glyph" aria-hidden="true">&laquo;</span>
+              <span class="lbl">1m</span>
             </button>
             <button type="button" class="remote-btn skip" data-seek="-15" aria-label="Back 15 seconds">
-              <span class="glyph">&lsaquo;</span>
-              <span class="lbl">15 sec</span>
+              <span class="glyph" aria-hidden="true">&lsaquo;</span>
+              <span class="lbl">15s</span>
             </button>
             <button type="button" class="remote-btn primary" id="pause-btn" aria-label="Pause or play">
-              <span class="glyph" id="pause-glyph">&#10074;&#10074;</span>
+              <span class="glyph" id="pause-glyph" aria-hidden="true">&#10074;&#10074;</span>
               <span class="lbl" id="pause-label">Pause</span>
             </button>
             <button type="button" class="remote-btn skip" data-seek="15" aria-label="Forward 15 seconds">
-              <span class="glyph">&rsaquo;</span>
-              <span class="lbl">15 sec</span>
+              <span class="glyph" aria-hidden="true">&rsaquo;</span>
+              <span class="lbl">15s</span>
             </button>
             <button type="button" class="remote-btn skip" data-seek="60" aria-label="Forward 1 minute">
-              <span class="glyph">&raquo;</span>
-              <span class="lbl">1 min</span>
+              <span class="glyph" aria-hidden="true">&raquo;</span>
+              <span class="lbl">1m</span>
             </button>
           </div>
 
           <div class="remote-row">
             <button type="button" class="remote-btn vol" data-volume="-10" aria-label="Volume down">
-              <span class="glyph">&minus;</span>
+              <span class="glyph" aria-hidden="true">&minus;</span>
               <span class="lbl">Vol</span>
             </button>
             <div class="vol-readout" id="vol-readout">--</div>
             <button type="button" class="remote-btn vol" data-volume="10" aria-label="Volume up">
-              <span class="glyph">+</span>
+              <span class="glyph" aria-hidden="true">+</span>
               <span class="lbl">Vol</span>
             </button>
           </div>
 
           <div class="remote-row">
             <button type="button" class="remote-btn stop" id="stop-btn-remote">
-              <span class="glyph">&#9632;</span>
+              <span class="glyph" aria-hidden="true">&#9632;</span>
               <span class="lbl">Stop playback</span>
             </button>
           </div>
@@ -125,6 +174,18 @@
     <nav class="tabbar" role="tablist" aria-label="Sections">
       <button
         type="button"
+        class="tabbtn"
+        id="tabbtn-screensaver"
+        data-tab="screensaver"
+        role="tab"
+        aria-selected="false"
+        aria-controls="tab-screensaver"
+      >
+        <span class="tab-glyph" aria-hidden="true">&#9728;</span>
+        <span class="tab-label">Screensaver</span>
+      </button>
+      <button
+        type="button"
         class="tabbtn active"
         id="tabbtn-home"
         data-tab="home"
@@ -132,7 +193,7 @@
         aria-selected="true"
         aria-controls="tab-home"
       >
-        <span class="tab-glyph">&#9775;</span>
+        <span class="tab-glyph" aria-hidden="true">&#9775;</span>
         <span class="tab-label">Home</span>
       </button>
       <button
@@ -144,11 +205,11 @@
         aria-selected="false"
         aria-controls="tab-remote"
       >
-        <span class="tab-glyph">&#9654;</span>
+        <span class="tab-glyph" aria-hidden="true">&#9654;</span>
         <span class="tab-label">Remote</span>
       </button>
     </nav>
 
-    <script src="/static/app.js"></script>
+    <script src="/static/app.js?v={{ js_version }}"></script>
   </body>
 </html>

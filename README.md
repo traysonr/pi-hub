@@ -1,6 +1,14 @@
+STATUS: CANONICAL
+OWNER: trays
+LAST UPDATED: 2026-04-19
+SCOPE: Pi Hub network-controlled media server for Raspberry Pi — setup, API, screensaver, and operations.
+RELATED: docs/README.md, docs/INDEX.md, app/README.md, AGENTS.md
+
 # Pi Hub
 
 A lightweight, network-controlled media server for a Raspberry Pi 3 B+.
+
+Documentation map and contributor rules: [docs/README.md](docs/README.md), [docs/INDEX.md](docs/INDEX.md), [AGENTS.md](AGENTS.md).
 
 The first milestone provides a mobile-friendly web UI to:
 
@@ -27,6 +35,17 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
+```
+
+## Development
+
+From the project root (optional venv):
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements-dev.txt
+pytest -q
 ```
 
 ## Run
@@ -134,6 +153,18 @@ with a "YouTube rejected the cookies" error, repeat the export step. The
 - `POST /api/play` — Body: `{ "filename": "video.mp4" }`. Plays fullscreen on HDMI.
 - `POST /api/stop` — Stops any current playback.
 - `GET /api/status` — Whether something is currently playing.
+- `POST /api/control/pause` — Toggle (or set) pause for the current video.
+- `POST /api/control/seek` — Body: `{ "seconds": 30 }`. Relative seek.
+- `POST /api/control/volume` — Body: `{ "delta": 10 }`. Adjust mpv volume.
+- `POST /api/tv/wake` — Wake TV, switch to Pi input (HDMI-CEC).
+- `POST /api/tv/sleep` — Send TV to standby (HDMI-CEC).
+- `GET /api/screensaver` — Current screensaver state, themes, and cache counts.
+- `POST /api/screensaver/enabled` — Body: `{ "enabled": true|false }`. Master toggle.
+- `POST /api/screensaver/start` — Start the slideshow now (409 if a video is playing or the master toggle is off; falls back to the yellow placeholder if no images are cached yet).
+- `POST /api/screensaver/stop` — Stop the slideshow.
+- `POST /api/screensaver/refresh` — Re-fetch images from all enabled themes.
+- `POST /api/screensaver/themes/{name}/toggle` — Toggle a single theme on/off.
+- `POST /api/screensaver/reload` — Reload `config/screensaver-themes.json` from disk.
 - `GET /healthz` — Health check.
 
 ## Project Layout
@@ -141,16 +172,30 @@ with a "YouTube rejected the cookies" error, repeat the export step. The
 ```
 pi-hub/
   app/
+    README.md          Application component portal
     main.py            FastAPI entrypoint
     config.py          Paths, logging, runtime dirs
     routes/
       media.py         HTTP API
+      screensaver.py   Screensaver HTTP API
     services/
       catalogue.py     Filesystem-backed video listing
+      display.py       Persistent mpv HDMI controller (slideshow / video / idle)
       downloader.py    yt-dlp background jobs
       player.py        mpv subprocess controller
+      cec.py           HDMI-CEC TV wake/sleep
+      reddit.py        Subreddit image listing + cache
+      screensaver.py   Slideshow lifecycle and theme management
+  docs/
+    README.md          Documentation portal
+    INDEX.md           Documentation navigation map
+  config/
+    screensaver-themes.json.example   Starter themes file (copy to .json)
   media/
     videos/            Downloaded videos live here
+    screensaver-cache/ Per-theme cached images
+  secrets/
+    youtube-cookies.txt  yt-dlp auth cookies (gitignored)
   static/              UI assets (CSS, JS)
   templates/           Jinja2 HTML templates
   scripts/
@@ -158,6 +203,7 @@ pi-hub/
     pi-hub.service         systemd unit (auto-start on boot)
     install-service.sh     Installs/enables/starts the systemd service
   requirements.txt
+  requirements-dev.txt  Dev/test dependencies (pytest)
 ```
 
 ## Notes
@@ -166,9 +212,48 @@ pi-hub/
 - Downloads run in a background thread so the API responds immediately. Poll `/api/downloads/{id}` for status.
 - Filenames are sanitized via `yt-dlp --restrict-filenames`. Filenames passed to `/api/play` are resolved against the media directory and rejected if they escape it.
 
+## Screensaver
+
+The TV connected to the Pi never falls back to the Linux console. A
+single long-lived `mpv` process owns the HDMI output continuously and
+switches between three "modes" via IPC, so transitions are seamless:
+
+1. **Slideshow** — fullscreen rotation of images pulled from
+   configurable subreddit "themes" (e.g. `r/Watercolor`, `r/EarthPorn`).
+2. **Video** — whatever you pressed Play on.
+3. **Yellow fallback** — a solid yellow placeholder, used when the
+   slideshow is disabled (or enabled but has no cached images yet).
+
+Behavior:
+
+- **Disabled by default.** With the master toggle off, the idle screen
+  is the yellow fallback. Flip it on in the Screensaver tab to make
+  slideshow the idle screen instead.
+- **Manual start/stop.** "Start now" forces the slideshow on screen
+  immediately. "Stop" swaps it for the yellow fallback without changing
+  the master toggle.
+- **Never wakes the TV.** If the TV is off, neither the slideshow nor
+  the yellow fallback push CEC wake commands.
+- **Seamless video handoff.** Pressing Play on any video swaps the
+  slideshow/yellow content for the video over IPC -- the same `mpv`
+  process keeps owning the framebuffer, so the Linux console never
+  flashes through. When the video ends (manually or naturally), the TV
+  returns immediately to whichever idle mode is configured (slideshow
+  if enabled, otherwise yellow).
+
+Themes live in `config/screensaver-themes.json` (gitignored; an example
+file is committed alongside it). Edit by hand on the Pi and press
+**Reload config** in the UI, or manage them with the per-theme on/off
+buttons. Images are cached under `media/screensaver-cache/<subreddit>/`,
+so the slideshow keeps working even if Reddit is briefly unreachable.
+The yellow placeholder image is generated at startup into the same
+cache directory and can be safely deleted (it'll be regenerated).
+
+System dependency: `mpv` (already required for video playback) handles
+all three rendering modes.
+
 ## Future Work (designed for, not implemented)
 
-- HDMI-CEC TV control
 - Music playback
 - Dashboard / kiosk mode
 - Automation rules engine
