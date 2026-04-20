@@ -236,9 +236,9 @@ switches between three "modes" via IPC, so transitions are seamless:
 
 Behavior:
 
-- **Disabled by default.** With the master toggle off, the idle screen
-  is the yellow fallback. Flip it on in the Screensaver tab to make
-  slideshow the idle screen instead.
+- **Enabled by default.** A fresh boot lands on the slideshow as the
+  idle screen. Toggle the master switch off in the Screensaver tab to
+  fall back to the solid-yellow placeholder instead.
 - **Manual start/stop.** "Start now" forces the slideshow on screen
   immediately. "Stop" swaps it for the yellow fallback without changing
   the master toggle.

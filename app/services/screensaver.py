@@ -66,7 +66,10 @@ class Theme:
 
 @dataclass
 class _State:
-    enabled: bool = False  # User toggle: "the screensaver feature is on"
+    # User toggle: "the screensaver feature is on". Defaults to True so a
+    # fresh boot lands on the slideshow rather than the bare yellow
+    # placeholder; toggle off in the UI to keep the yellow idle screen.
+    enabled: bool = True
     last_error: str | None = None
     last_refresh_at: float | None = None
     last_refresh_summary: str | None = None
