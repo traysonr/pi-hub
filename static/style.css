@@ -46,11 +46,18 @@ body {
   background: var(--bg);
   color: var(--text);
   min-height: 100vh;
-  /* Prevent any single overflowing element from collapsing the layout
-     viewport (the symptom that made the page span only the topbar width). */
-  overflow-x: hidden;
-  overscroll-behavior-y: contain;
   -webkit-tap-highlight-color: transparent;
+}
+
+/* Keep horizontal overflow contained to <html> so <body> stays a normal,
+   scrollable document. Putting ``overflow-x: hidden`` on <body> turns the
+   body into its own scroll container on mobile browsers, which then
+   silently ignores touch-scroll gestures inside <main> -- the symptom
+   was "the Video tab list won't scroll unless I start the swipe in the
+   bottom tab bar." Scoping it to <html> fixes scrolling without
+   re-introducing the horizontal layout collapse it was guarding against. */
+html {
+  overflow-x: hidden;
 }
 
 body {
@@ -58,6 +65,7 @@ body {
   padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px) + 8px);
   font-size: var(--fs-body);
   line-height: 1.45;
+  overscroll-behavior-y: contain;
 }
 
 img,
