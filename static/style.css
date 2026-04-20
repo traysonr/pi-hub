@@ -582,6 +582,38 @@ button.ghost.danger {
   flex: 0 0 auto;
 }
 
+/* Two buttons per row (toggle + delete) sit together on the right. */
+.theme-list .actions {
+  display: flex;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+/* Inline "add a subreddit" form under the theme list. Flex so the input
+   stretches and the button stays tight on the right. */
+.ss-add-form {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.ss-add-form input[type="text"] {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 10px 12px;
+  font-size: var(--fs-small);
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.ss-add-form button {
+  padding: 10px 14px;
+  font-size: var(--fs-small);
+  flex: 0 0 auto;
+}
+
 /* Toggle switch (used for screensaver enabled flag). */
 
 .switch {

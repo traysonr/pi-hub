@@ -19,6 +19,12 @@ class EnabledRequest(BaseModel):
     enabled: bool
 
 
+class AddThemeRequest(BaseModel):
+    # Accept whatever the user typed: bare name ("robotics"), "r/robotics",
+    # or a full Reddit URL. The service normalizes and validates.
+    subreddit: str
+
+
 @router.get("")
 def get_status() -> dict[str, Any]:
     return screensaver.get_status()
@@ -53,6 +59,28 @@ def post_refresh() -> dict[str, Any]:
 def post_toggle_theme(name: str) -> dict[str, Any]:
     try:
         return screensaver.toggle_theme(name)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/themes")
+def post_add_theme(payload: AddThemeRequest) -> dict[str, Any]:
+    try:
+        return screensaver.add_theme(payload.subreddit)
+    except ValueError as exc:
+        # Syntactically bad input -- 400 so the UI can show the message
+        # the service returned verbatim.
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except KeyError as exc:
+        # Duplicate -- 409 so the UI can distinguish "bad name" from
+        # "already configured".
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.delete("/themes/{name}")
+def delete_theme(name: str) -> dict[str, Any]:
+    try:
+        return screensaver.remove_theme(name)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

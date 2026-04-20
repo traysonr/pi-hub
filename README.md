@@ -171,6 +171,8 @@ YouTube shows, then export a new `cookies.txt` and replace the file on the Pi.
 - `POST /api/screensaver/stop` — Stop the slideshow.
 - `POST /api/screensaver/refresh` — Re-fetch images from all enabled themes.
 - `POST /api/screensaver/themes/{name}/toggle` — Toggle a single theme on/off.
+- `POST /api/screensaver/themes` — Body: `{ "subreddit": "robotics" }`. Add a new theme. Accepts bare names, `r/name`, or full Reddit URLs. 400 on invalid input, 409 if the subreddit is already configured.
+- `DELETE /api/screensaver/themes/{name}` — Remove a theme and delete its cached images on disk.
 - `POST /api/screensaver/reload` — Reload `config/screensaver-themes.json` from disk.
 - `GET /healthz` — Health check.
 
@@ -252,9 +254,13 @@ Behavior:
   if enabled, otherwise yellow).
 
 Themes live in `config/screensaver-themes.json` (gitignored; an example
-file is committed alongside it). Edit by hand on the Pi and press
-**Reload config** in the UI, or manage them with the per-theme on/off
-buttons. Images are cached under `media/screensaver-cache/<subreddit>/`,
+file is committed alongside it). The easiest way to manage them is from
+the Screensaver tab: type a subreddit name (or paste an `r/...` link)
+to add one, press **Delete** to remove a theme and its cached images,
+or use the per-theme on/off buttons to keep a theme configured but
+silenced. Hand edits still work -- press **Reload config** in the UI
+after editing the file. Images are cached under
+`media/screensaver-cache/<subreddit>/`,
 so the slideshow keeps working even if Reddit is briefly unreachable.
 The yellow placeholder image is generated at startup into the same
 cache directory and can be safely deleted (it'll be regenerated).

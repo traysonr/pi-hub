@@ -93,6 +93,103 @@ def test_start_refuses_when_disabled(fake_display: FakeMpv, cached_image: Path) 
         screensaver.start()
 
 
+def test_add_theme_appends_and_persists(
+    fake_display: FakeMpv, cached_image: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.services import screensaver
+
+    _boot(fake_display)
+    # Don't fire real network traffic from the background refresh worker
+    # that add_theme kicks off.
+    monkeypatch.setattr(screensaver, "_kick_refresh_async", lambda: None)
+    screensaver._state.themes = []
+
+    status = screensaver.add_theme("robotics")
+    names = [t["name"] for t in status["themes"]]
+    subs = [t["subreddit"] for t in status["themes"]]
+    assert "robotics" in names
+    assert "robotics" in subs
+
+
+def test_add_theme_normalizes_url_and_prefix(
+    fake_display: FakeMpv, cached_image: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.services import screensaver
+
+    _boot(fake_display)
+    monkeypatch.setattr(screensaver, "_kick_refresh_async", lambda: None)
+    screensaver._state.themes = []
+
+    screensaver.add_theme("https://www.reddit.com/r/spacex/")
+    screensaver.add_theme("r/pics")
+
+    subs = [t.subreddit for t in screensaver._state.themes]
+    assert "spacex" in subs
+    assert "pics" in subs
+
+
+def test_add_theme_rejects_invalid_input(
+    fake_display: FakeMpv, cached_image: Path
+) -> None:
+    from app.services import screensaver
+
+    _boot(fake_display)
+
+    with pytest.raises(ValueError):
+        screensaver.add_theme("")
+    with pytest.raises(ValueError):
+        screensaver.add_theme("not a subreddit!")
+
+
+def test_add_theme_rejects_duplicates(
+    fake_display: FakeMpv, cached_image: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.services import screensaver
+
+    _boot(fake_display)
+    monkeypatch.setattr(screensaver, "_kick_refresh_async", lambda: None)
+
+    # Start from a clean theme list so other tests that added "robotics"
+    # don't pre-trip the dedupe we're about to exercise.
+    screensaver._state.themes = []
+    screensaver.add_theme("robotics")
+    with pytest.raises(KeyError):
+        # Different capitalization -- still a dupe.
+        screensaver.add_theme("Robotics")
+
+
+def test_remove_theme_deletes_cache_dir(
+    fake_display: FakeMpv, cached_image: Path, tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.config import SCREENSAVER_CACHE_DIR
+    from app.services import screensaver
+
+    _boot(fake_display)
+    monkeypatch.setattr(screensaver, "_kick_refresh_async", lambda: None)
+
+    screensaver._state.themes = []
+    screensaver.add_theme("robotics")
+    cache = SCREENSAVER_CACHE_DIR / "robotics"
+    cache.mkdir(parents=True, exist_ok=True)
+    (cache / "a.jpg").write_bytes(b"\xff\xd8\xff\xd9")
+    assert cache.exists()
+
+    status = screensaver.remove_theme("robotics")
+    assert "robotics" not in [t["name"] for t in status["themes"]]
+    assert not cache.exists()
+
+
+def test_remove_theme_missing_raises_keyerror(
+    fake_display: FakeMpv, cached_image: Path
+) -> None:
+    from app.services import screensaver
+
+    _boot(fake_display)
+    with pytest.raises(KeyError):
+        screensaver.remove_theme("nope")
+
+
 def test_stop_swaps_slideshow_for_yellow_without_changing_enabled(
     fake_display: FakeMpv, cached_image: Path
 ) -> None:

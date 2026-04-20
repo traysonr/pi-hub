@@ -139,10 +139,24 @@
             <li class="empty">Loading…</li>
           </ul>
           <p class="hint">
-            Themes are subreddits. Edit
-            <code>config/screensaver-themes.json</code> on the Pi to add or
-            remove themes (then press Reload).
+            Each theme is a subreddit. Type a name like <code>robotics</code>
+            (or paste an <code>r/robotics</code> link) to add it; deleting a
+            theme also removes its cached images from disk.
           </p>
+          <form id="ss-add-form" class="ss-add-form">
+            <input
+              type="text"
+              id="ss-add-input"
+              name="subreddit"
+              placeholder="robotics"
+              autocomplete="off"
+              autocapitalize="off"
+              autocorrect="off"
+              spellcheck="false"
+              required
+            />
+            <button type="submit" id="ss-add-btn">Add</button>
+          </form>
           <div class="ss-actions">
             <button type="button" id="ss-reload-btn" class="ghost">Reload config</button>
           </div>

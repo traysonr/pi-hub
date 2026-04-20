@@ -34,6 +34,8 @@ from __future__ import annotations
 import json
 import logging
 import random
+import re
+import shutil
 import threading
 import time
 from dataclasses import asdict, dataclass, field
@@ -257,6 +259,124 @@ def toggle_theme(name: str) -> dict[str, Any]:
     # If the slideshow is currently the active idle screen, rebuild it
     # so the toggle takes effect right away without a manual restart.
     display.reapply_idle()
+    return get_status()
+
+
+# Matches a valid Reddit subreddit name on its own: letters, digits, and
+# underscores, 3-21 characters (Reddit's documented limit). We normalize
+# a few user-friendly inputs to this form before validating.
+_SUBREDDIT_NAME_RE = re.compile(r"^[A-Za-z0-9_]{3,21}$")
+
+
+def _normalize_subreddit(raw: str) -> str:
+    """Turn a user-friendly input into a bare subreddit name.
+
+    Accepts any of:
+      - ``robotics``
+      - ``r/robotics`` / ``/r/robotics``
+      - ``https://www.reddit.com/r/robotics/`` (with or without trailing slash)
+      - ``reddit.com/r/robotics``
+
+    Raises ``ValueError`` with a user-facing message if the input can't
+    be reduced to a syntactically valid subreddit name.
+    """
+
+    text = (raw or "").strip()
+    if not text:
+        raise ValueError("Subreddit name is required.")
+
+    # Strip URL scheme + host if the user pasted a full Reddit link.
+    match = re.search(r"(?:^|/)r/([^/?#\s]+)", text, flags=re.IGNORECASE)
+    if match:
+        text = match.group(1)
+
+    # Strip any leftover leading ``r/`` or ``/`` after the URL pass.
+    text = text.lstrip("/")
+    if text.lower().startswith("r/"):
+        text = text[2:]
+    text = text.strip("/")
+
+    if not _SUBREDDIT_NAME_RE.match(text):
+        raise ValueError(
+            f"{raw!r} is not a valid subreddit name. Use letters, digits, and "
+            "underscores (3-21 characters), e.g. 'robotics'."
+        )
+    return text
+
+
+def add_theme(subreddit: str) -> dict[str, Any]:
+    """Append a new theme for ``subreddit`` and persist.
+
+    Returns the updated status payload. Raises ``ValueError`` if the
+    input is syntactically invalid, or ``KeyError`` if a theme for the
+    same subreddit already exists (case-insensitive) -- routes map
+    these to 400 / 409 respectively.
+    """
+
+    normalized = _normalize_subreddit(subreddit)
+    lowered = normalized.lower()
+
+    with _lock:
+        for theme in _state.themes:
+            if theme.subreddit.lower() == lowered:
+                raise KeyError(
+                    f"A theme for r/{theme.subreddit} is already in the list."
+                )
+        _state.themes.append(
+            Theme(name=normalized, subreddit=normalized, enabled=True)
+        )
+        try:
+            _save_config_locked()
+        except OSError as exc:
+            log.warning("Failed to save themes config: %s", exc)
+
+    # Fire a background refresh so the new subreddit's images show up
+    # on screen without the user having to press Refresh manually. The
+    # refresh worker will call reapply_idle() when it finishes.
+    _kick_refresh_async()
+    log.info("Added screensaver theme r/%s", normalized)
+    return get_status()
+
+
+def remove_theme(name: str) -> dict[str, Any]:
+    """Remove the named theme and delete its cached images on disk.
+
+    Matches on ``name`` (not subreddit) for symmetry with
+    ``toggle_theme``. Raises ``KeyError`` if no such theme exists.
+    """
+
+    with _lock:
+        target: Theme | None = None
+        for theme in _state.themes:
+            if theme.name == name:
+                target = theme
+                break
+        if target is None:
+            raise KeyError(f"No such theme: {name}")
+        _state.themes = [t for t in _state.themes if t is not target]
+        try:
+            _save_config_locked()
+        except OSError as exc:
+            log.warning("Failed to save themes config: %s", exc)
+
+    # Best-effort cache cleanup. The cache dir is derived from the
+    # subreddit name (see ``reddit._theme_cache_dir``); we reproduce
+    # the same sanitization here to find it. Failures are logged but
+    # don't fail the API call -- the theme is already gone from the
+    # config, which is the user-facing contract.
+    safe = re.sub(r"[^A-Za-z0-9_-]", "_", target.subreddit)
+    cache_dir = SCREENSAVER_CACHE_DIR / safe
+    if cache_dir.is_dir():
+        try:
+            shutil.rmtree(cache_dir)
+            log.info("Removed cached images for r/%s at %s", target.subreddit, cache_dir)
+        except OSError as exc:
+            log.warning("Failed to delete cache dir %s: %s", cache_dir, exc)
+
+    # Rebuild the slideshow so images from the removed theme disappear
+    # immediately instead of lingering until the next mode transition.
+    display.reapply_idle()
+    log.info("Removed screensaver theme %s (r/%s)", name, target.subreddit)
     return get_status()
 
 

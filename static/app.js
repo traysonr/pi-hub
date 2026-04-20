@@ -30,6 +30,9 @@
     ssReloadBtn: document.getElementById("ss-reload-btn"),
     ssThemes: document.getElementById("ss-themes"),
     ssMeta: document.getElementById("ss-meta"),
+    ssAddForm: document.getElementById("ss-add-form"),
+    ssAddInput: document.getElementById("ss-add-input"),
+    ssAddBtn: document.getElementById("ss-add-btn"),
     tabs: {
       add: document.getElementById("tab-add"),
       video: document.getElementById("tab-video"),
@@ -659,10 +662,79 @@
       toggle.textContent = theme.enabled ? "On" : "Off";
       toggle.addEventListener("click", () => toggleTheme(theme.name, toggle));
 
+      const del = document.createElement("button");
+      del.type = "button";
+      del.className = "ghost danger";
+      del.textContent = "Delete";
+      del.addEventListener("click", () => deleteTheme(theme, del));
+
+      const actions = document.createElement("div");
+      actions.className = "actions";
+      actions.appendChild(toggle);
+      actions.appendChild(del);
+
       li.appendChild(meta);
-      li.appendChild(toggle);
+      li.appendChild(actions);
       els.ssThemes.appendChild(li);
     }
+  }
+
+  async function addTheme(subreddit) {
+    if (!subreddit) return;
+    if (els.ssAddBtn) els.ssAddBtn.disabled = true;
+    setStatus(els.ssStatus, `Adding r/${subreddit}…`);
+    try {
+      const data = await api("/api/screensaver/themes", {
+        method: "POST",
+        body: JSON.stringify({ subreddit }),
+      });
+      renderScreensaver(data);
+      setStatus(
+        els.ssStatus,
+        `Added r/${subreddit}. Fetching images in the background…`,
+        "success"
+      );
+      if (els.ssAddInput) els.ssAddInput.value = "";
+    } catch (err) {
+      setStatus(els.ssStatus, err.message, "error");
+    } finally {
+      if (els.ssAddBtn) els.ssAddBtn.disabled = false;
+    }
+  }
+
+  async function deleteTheme(theme, btn) {
+    const label = `r/${theme.subreddit}`;
+    const cached = theme.cached_images || 0;
+    const suffix = cached > 0 ? ` and ${cached} cached image${cached === 1 ? "" : "s"}` : "";
+    if (!window.confirm(`Delete ${label}${suffix}? This cannot be undone.`)) {
+      return;
+    }
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "Deleting…";
+    }
+    try {
+      const data = await api(
+        `/api/screensaver/themes/${encodeURIComponent(theme.name)}`,
+        { method: "DELETE" }
+      );
+      renderScreensaver(data);
+      setStatus(els.ssStatus, `Removed ${label}.`, "success");
+    } catch (err) {
+      setStatus(els.ssStatus, `Delete failed: ${err.message}`, "error");
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = "Delete";
+      }
+    }
+  }
+
+  if (els.ssAddForm) {
+    els.ssAddForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const raw = (els.ssAddInput && els.ssAddInput.value) || "";
+      addTheme(raw.trim());
+    });
   }
 
   async function refreshScreensaver() {
