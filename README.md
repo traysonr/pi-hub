@@ -150,12 +150,14 @@ YouTube shows, then export a new `cookies.txt` and replace the file on the Pi.
 ## API
 
 - `GET /` — Web UI.
-- `GET /api/videos` — List catalogue entries.
+- `GET /api/videos` — List video catalogue entries.
 - `DELETE /api/videos/{filename}` — Remove a video from the catalogue (stops playback first if needed).
-- `POST /api/download` — Body: `{ "url": "https://..." }`. Starts a background download.
+- `GET /api/music` — List audio catalogue entries.
+- `DELETE /api/music/{filename}` — Remove a music track from the catalogue (stops playback first if needed).
+- `POST /api/download` — Body: `{ "url": "https://...", "audio_only": false }`. Starts a background download. With `audio_only=true` the file is extracted into the Music tab instead of the Video tab.
 - `GET /api/downloads` — List recent download jobs.
 - `GET /api/downloads/{id}` — Status of a single download job.
-- `POST /api/play` — Body: `{ "filename": "video.mp4" }`. Plays fullscreen on HDMI.
+- `POST /api/play` — Body: `{ "filename": "video.mp4", "library": "video" }`. Set `"library": "music"` to play an audio track headlessly over HDMI/ALSA without disturbing the slideshow on screen.
 - `POST /api/stop` — Stops any current playback.
 - `GET /api/status` — Whether something is currently playing.
 - `POST /api/control/pause` — Toggle (or set) pause for the current video.
@@ -184,10 +186,11 @@ pi-hub/
       media.py         HTTP API
       screensaver.py   Screensaver HTTP API
     services/
-      catalogue.py     Filesystem-backed video listing
+      catalogue.py     Filesystem-backed video + music listing
       display.py       Persistent mpv HDMI controller (slideshow / video / idle)
-      downloader.py    yt-dlp background jobs
-      player.py        mpv subprocess controller
+      audio_player.py  Headless mpv backend for music playback over HDMI/ALSA
+      downloader.py    yt-dlp background jobs (video and audio-only)
+      player.py        Playback facade dispatching between video and audio backends
       cec.py           HDMI-CEC TV wake/sleep
       reddit.py        Subreddit image listing + cache
       screensaver.py   Slideshow lifecycle and theme management
@@ -198,6 +201,7 @@ pi-hub/
     screensaver-themes.json.example   Starter themes file (copy to .json)
   media/
     videos/            Downloaded videos live here
+    music/             Audio-only downloads live here
     screensaver-cache/ Per-theme cached images
   secrets/
     youtube-cookies.txt  yt-dlp auth cookies (gitignored)
@@ -207,6 +211,7 @@ pi-hub/
     run.sh                 Convenience foreground launcher
     pi-hub.service         systemd unit (auto-start on boot)
     install-service.sh     Installs/enables/starts the systemd service
+    bulk_download.py       CLI to enqueue many YouTube URLs from a list file
   requirements.txt
   requirements-dev.txt  Dev/test dependencies (pytest)
 ```
@@ -259,7 +264,6 @@ all three rendering modes.
 
 ## Future Work (designed for, not implemented)
 
-- Music playback
 - Dashboard / kiosk mode
 - Automation rules engine
 - Sensor data ingestion

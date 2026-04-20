@@ -1,6 +1,6 @@
 STATUS: CANONICAL
 OWNER: trays
-LAST UPDATED: 2026-04-19
+LAST UPDATED: 2026-04-20
 SCOPE: FastAPI application package — entrypoint, HTTP routes, and backing services for Pi Hub.
 RELATED: ../README.md, ../docs/README.md, ../docs/INDEX.md, ../AGENTS.md
 
@@ -12,16 +12,17 @@ RELATED: ../README.md, ../docs/README.md, ../docs/INDEX.md, ../AGENTS.md
 
 ## HTTP routes
 
-- `routes/media.py` — Video catalogue, downloads, playback, TV HDMI-CEC, and remote-style controls.
+- `routes/media.py` — Video and music catalogue, downloads (video + audio-only), playback, TV HDMI-CEC, and remote-style controls.
 - `routes/screensaver.py` — Screensaver state, themes, refresh, and master toggle.
 
 ## Core services
 
 - `services/display.py` — Single long-lived `mpv` process and JSON IPC; owns HDMI transitions between slideshow, video, and yellow idle modes.
-- `services/player.py` — Thin playback facade over `display` for legacy call sites and `/api/status`.
+- `services/audio_player.py` — Headless `mpv` backend for music playback over HDMI/ALSA without disturbing whatever the display controller is showing.
+- `services/player.py` — Playback facade dispatching between the video (display) and audio backends; also surfaces unified `/api/status` and remote controls.
 - `services/screensaver.py` — Theme configuration, Reddit-backed image cache, and idle-mode coordination with `display`.
 - `services/reddit.py` — Subreddit listing and on-disk image cache helpers.
-- `services/catalogue.py`, `services/downloader.py`, `services/cec.py` — Catalogue, `yt-dlp` jobs, and CEC helpers respectively.
+- `services/catalogue.py`, `services/downloader.py`, `services/cec.py` — Video + music catalogue listings, `yt-dlp` jobs, and CEC helpers respectively.
 
 ## Configuration
 
