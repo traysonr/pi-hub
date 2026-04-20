@@ -69,6 +69,13 @@ _MPV_STARTUP_PROBE_SECONDS = 0.6
 
 _MPV_LOG_PATH = Path("/tmp/pi-hub-mpv.log")
 
+# Pi 3 (Broadcom VC4 V3D 2.1) advertises GL_MAX_TEXTURE_SIZE = 2048.
+# Any image plane larger than this fails its glTexImage2D upload and the
+# slide renders with corrupted colours (the original "red/black" bug).
+# We downscale every slideshow image to fit inside this box before
+# upload. Override via env if running on a Pi with a larger cap.
+_MAX_TEXTURE_DIM = int(os.environ.get("PI_HUB_MAX_TEXTURE_DIM", "2048"))
+
 # Solid yellow placeholder image written under SCREENSAVER_CACHE_DIR so
 # the user never sees the underlying console. Generated on first start
 # if it doesn't already exist; safe to delete (will be regenerated).
@@ -805,6 +812,10 @@ def _configure_for_video_locked() -> None:
     output is enabled by ``aid=auto`` (track selection) plus unmuting.
     """
 
+    # Slideshow mode may leave a ``vf`` filter on the VO to work around
+    # incorrect colours on some stills (see ``_configure_for_slideshow_locked``).
+    # Clear it for video so we do not force an RGB conversion on every frame.
+    _safe_set("vf", "")
     _safe_set("aid", "auto")
     _safe_set("vid", "auto")
     _safe_set("mute", False)
@@ -815,6 +826,29 @@ def _configure_for_video_locked() -> None:
 
 
 def _configure_for_slideshow_locked() -> None:
+    # Pi 3 hardware reality: the VC4 GLES driver advertises
+    # ``GL_MAX_TEXTURE_SIZE = 2048``. Any image whose decoded plane
+    # exceeds 2048 px in either dimension fails its texture upload with
+    # ``OpenGL error INVALID_VALUE`` (visible in /tmp/pi-hub-mpv.log)
+    # and the slide renders as a heavily red-tinted / dark mess --
+    # which is the "wrong color domain" symptom users see. Reddit
+    # photos are routinely 3-5K on a side, so a large fraction of the
+    # cache hits this.
+    #
+    # We pre-shrink in lavfi so neither dimension exceeds ``_MAX_DIM``,
+    # while preserving aspect ratio. ``force_original_aspect_ratio
+    # =decrease`` makes the scaler fit *inside* the box rather than
+    # stretching to it, and ``-2`` is unused here because we now bound
+    # both axes explicitly. Lanczos keeps the downscale crisp.
+    #
+    # ``lavfi=[...]`` is required (vs. a top-level ``scale=...``)
+    # because the IPC ``vf`` parser chokes on the commas inside
+    # ``min(...)`` when the filter is set at the top level.
+    _safe_set(
+        "vf",
+        f"lavfi=[scale={_MAX_TEXTURE_DIM}:{_MAX_TEXTURE_DIM}"
+        f":force_original_aspect_ratio=decrease:flags=lanczos]",
+    )
     _safe_set("aid", "no")
     _safe_set("mute", True)
     _safe_set("loop-file", "no")
@@ -824,6 +858,7 @@ def _configure_for_slideshow_locked() -> None:
 
 
 def _configure_for_yellow_locked() -> None:
+    _safe_set("vf", "")
     _safe_set("aid", "no")
     _safe_set("mute", True)
     # Hold the single yellow image forever (not just for image-seconds).
