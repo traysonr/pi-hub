@@ -9,6 +9,8 @@
     downloadStatus: document.getElementById("download-status"),
     refreshBtn: document.getElementById("refresh-btn"),
     musicRefreshBtn: document.getElementById("music-refresh-btn"),
+    shuffleBtn: document.getElementById("shuffle-btn"),
+    shuffleLabel: document.getElementById("shuffle-label"),
     videoList: document.getElementById("video-list"),
     musicList: document.getElementById("music-list"),
     playerStatus: document.getElementById("player-status"),
@@ -17,6 +19,9 @@
     pauseGlyph: document.getElementById("pause-glyph"),
     pauseLabel: document.getElementById("pause-label"),
     stopBtnRemote: document.getElementById("stop-btn-remote"),
+    trackRow: document.getElementById("track-row"),
+    prevTrackBtn: document.getElementById("prev-track-btn"),
+    nextTrackBtn: document.getElementById("next-track-btn"),
     volReadout: document.getElementById("vol-readout"),
     remoteStatus: document.getElementById("remote-status"),
     tvWakeBtn: document.getElementById("tv-wake-btn"),
@@ -27,6 +32,7 @@
     ssStartBtn: document.getElementById("ss-start-btn"),
     ssStopBtn: document.getElementById("ss-stop-btn"),
     ssRefreshBtn: document.getElementById("ss-refresh-btn"),
+    ssRotateBtn: document.getElementById("ss-rotate-btn"),
     ssReloadBtn: document.getElementById("ss-reload-btn"),
     ssThemes: document.getElementById("ss-themes"),
     ssMeta: document.getElementById("ss-meta"),
@@ -55,6 +61,7 @@
   let statusPollHandle = null;
   let currentTab = "add";
   let lastKnownPlaying = false;
+  let shuffleActive = false;
 
   // ---- Helpers ------------------------------------------------------------
 
@@ -345,6 +352,28 @@
 
     setRemoteEnabled(playing);
     els.tabBtns.remote.classList.toggle("has-badge", playing);
+
+    if (state && typeof state.shuffle_active === "boolean") {
+      setShuffleUi(state.shuffle_active);
+    }
+  }
+
+  function setShuffleUi(active) {
+    shuffleActive = !!active;
+    if (els.shuffleBtn) {
+      els.shuffleBtn.classList.toggle("active", shuffleActive);
+      els.shuffleBtn.setAttribute(
+        "aria-pressed",
+        shuffleActive ? "true" : "false"
+      );
+      if (els.shuffleLabel) {
+        els.shuffleLabel.textContent = shuffleActive ? "Stop" : "Shuffle";
+      }
+    }
+    if (els.trackRow) {
+      // Only show track navigation when shuffle mode is active.
+      els.trackRow.hidden = !shuffleActive;
+    }
   }
 
   function setRemoteEnabled(enabled) {
@@ -431,6 +460,30 @@
     }
   });
 
+  if (els.prevTrackBtn) {
+    els.prevTrackBtn.addEventListener("click", async () => {
+      try {
+        await api("/api/music/shuffle/prev", { method: "POST" });
+        flashRemote("Prev track", "success");
+        refreshPlayerStatus();
+      } catch (err) {
+        flashRemote(`Prev failed: ${err.message}`, "error");
+      }
+    });
+  }
+
+  if (els.nextTrackBtn) {
+    els.nextTrackBtn.addEventListener("click", async () => {
+      try {
+        await api("/api/music/shuffle/next", { method: "POST" });
+        flashRemote("Next track", "success");
+        refreshPlayerStatus();
+      } catch (err) {
+        flashRemote(`Next failed: ${err.message}`, "error");
+      }
+    });
+  }
+
   els.stopBtnRemote.addEventListener("click", async () => {
     els.stopBtnRemote.disabled = true;
     try {
@@ -445,6 +498,39 @@
       els.stopBtnRemote.disabled = !lastKnownPlaying ? true : false;
     }
   });
+
+  if (els.shuffleBtn) {
+    els.shuffleBtn.addEventListener("click", async () => {
+      els.shuffleBtn.disabled = true;
+      const wasActive = shuffleActive;
+      try {
+        if (wasActive) {
+          await api("/api/music/shuffle/stop", { method: "POST" });
+          setShuffleUi(false);
+          setPlayerStatus({ playing: false, shuffle_active: false });
+        } else {
+          const data = await api("/api/music/shuffle/start", { method: "POST" });
+          setShuffleUi(!!data.active);
+          // A track just started; pivot to the remote so the user can
+          // control volume / skip / stop without hunting for the tab.
+          setPlayerStatus({
+            playing: true,
+            paused: false,
+            kind: "audio",
+            title: data.current || "Shuffling…",
+            shuffle_active: true,
+          });
+          showTab("remote");
+          schedulePolling();
+        }
+      } catch (err) {
+        setStatus(els.downloadStatus, `Shuffle failed: ${err.message}`, "error");
+      } finally {
+        els.shuffleBtn.disabled = false;
+        refreshPlayerStatus();
+      }
+    });
+  }
 
   let flashHandle = null;
   function flashRemote(text, kind) {
@@ -818,6 +904,34 @@
       } finally {
         els.ssRefreshBtn.disabled = false;
         els.ssRefreshBtn.textContent = originalText;
+      }
+    });
+  }
+
+  if (els.ssRotateBtn) {
+    els.ssRotateBtn.addEventListener("click", async () => {
+      if (
+        !window.confirm(
+          "Rotate now? This keeps ~25% of cached images and replaces the rest."
+        )
+      ) {
+        return;
+      }
+      els.ssRotateBtn.disabled = true;
+      const originalText = els.ssRotateBtn.textContent;
+      els.ssRotateBtn.textContent = "Rotating…";
+      setStatus(els.ssStatus, "Rotating cache…");
+      try {
+        const data = await api("/api/screensaver/rotate", { method: "POST" });
+        if (data.status) renderScreensaver(data.status);
+        if (data.rotation && data.rotation.summary) {
+          setStatus(els.ssStatus, `Rotated: ${data.rotation.summary}`, "success");
+        }
+      } catch (err) {
+        setStatus(els.ssStatus, `Rotate failed: ${err.message}`, "error");
+      } finally {
+        els.ssRotateBtn.disabled = false;
+        els.ssRotateBtn.textContent = originalText;
       }
     });
   }

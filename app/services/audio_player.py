@@ -34,7 +34,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 log = logging.getLogger(__name__)
 
@@ -65,6 +65,18 @@ _listener_thread: threading.Thread | None = None
 _listener_stop = threading.Event()
 _supervisor_thread: threading.Thread | None = None
 _supervisor_stop = threading.Event()
+
+# End-of-track subscribers. Invoked (outside the state lock) whenever a
+# track ends naturally (eof) or errors out. Used by the shuffle service
+# to queue the next track without polling.
+_end_callbacks: list[Callable[[str], None]] = []
+
+
+def register_end_callback(cb: Callable[[str], None]) -> None:
+    """Register a callback fired when a track ends (eof/error)."""
+
+    if cb not in _end_callbacks:
+        _end_callbacks.append(cb)
 
 
 class AudioPlayerNotRunning(RuntimeError):
@@ -469,6 +481,14 @@ def _on_end_file(msg: dict[str, Any]) -> None:
         _state.path = None
         _state.title = None
         _state.started_at = None
+
+    # Fire subscribers OUTSIDE the lock so callbacks can legally call back
+    # into play()/stop() without deadlocking.
+    for cb in list(_end_callbacks):
+        try:
+            cb(reason)
+        except Exception:
+            log.exception("audio end-file callback failed")
 
 
 # --- Low-level IPC primitives -----------------------------------------

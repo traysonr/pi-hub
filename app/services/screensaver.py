@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import random
 import re
 import shutil
@@ -54,6 +55,16 @@ log = logging.getLogger(__name__)
 _DEFAULT_IMAGE_SECONDS = 60
 _MIN_IMAGE_SECONDS = 5
 _MAX_IMAGE_SECONDS = 60 * 60
+
+# Target number of cached images per theme at steady state. At 05:00
+# local time we drop 75% of the current cache (keeping a random 25%)
+# and refill up to this count with Reddit's current top listing. 50 is
+# enough variety for an all-day slideshow without being wasteful on the
+# SD card; override per-install via the env var if desired.
+_DEFAULT_CACHE_TARGET = int(os.environ.get("PI_HUB_THEME_CACHE_TARGET", "50"))
+# Fraction of the existing cache retained during a rotation. The rest
+# is deleted and re-downloaded. 0.25 => keep a random 25%, drop 75%.
+_ROTATION_KEEP_FRACTION = 0.25
 
 
 @dataclass
@@ -479,6 +490,140 @@ def refresh_now() -> dict[str, Any]:
     # to press Start again.
     display.reapply_idle()
     return get_status()
+
+
+def rotate_theme(
+    subreddit: str,
+    *,
+    target: int = _DEFAULT_CACHE_TARGET,
+    keep_fraction: float = _ROTATION_KEEP_FRACTION,
+) -> dict[str, Any]:
+    """Drop 75% of ``subreddit``'s cached images (random), refill up to
+    ``target``.
+
+    Returns a per-theme summary dict with the counts at each step. The
+    "keep N random" semantics are deliberate: the user asked for
+    variety-over-time, not "newest always wins", so on a day when
+    Reddit's top listing barely changed we still end up with some fresh
+    bytes on disk and don't repeat yesterday's exact slideshow.
+
+    This is safe to call concurrently with the slideshow running: the
+    display controller holds its own references to the playlist file
+    and mpv re-reads files lazily. We call ``display.reapply_idle()``
+    at the end so the running slideshow picks up the rotated set
+    immediately.
+    """
+
+    before = reddit.list_cached_images(subreddit)
+    before_count = len(before)
+
+    # How many to keep = floor(current * keep_fraction), but never more
+    # than what's currently there and never more than the target.
+    keep_n = min(before_count, target, int(before_count * keep_fraction))
+    kept: list[Path] = []
+    if keep_n > 0:
+        kept = random.sample(before, keep_n)
+    keep_set = {p.resolve() for p in kept}
+
+    deleted = 0
+    for path in before:
+        if path.resolve() in keep_set:
+            continue
+        try:
+            path.unlink()
+            deleted += 1
+        except OSError as exc:
+            log.warning("Rotate: could not delete %s: %s", path, exc)
+
+    # Refill. refresh_theme caps its own download count, so ask for
+    # exactly the shortfall -- no point hammering Reddit for 50 images
+    # when we're only missing 38.
+    shortfall = max(0, target - len(kept))
+    downloaded = 0
+    fetched_total = 0
+    if shortfall > 0:
+        try:
+            downloaded, fetched_total = reddit.refresh_theme(
+                subreddit, max_images=shortfall
+            )
+        except Exception:  # noqa: BLE001
+            log.exception("Rotate: refresh failed for %s", subreddit)
+
+    after = reddit.list_cached_images(subreddit)
+    summary = {
+        "subreddit": subreddit,
+        "before": before_count,
+        "kept": len(kept),
+        "deleted": deleted,
+        "downloaded": downloaded,
+        "after": len(after),
+        "target": target,
+    }
+    log.info(
+        "Rotate %s: kept %d/%d, deleted %d, +%d new, now %d (target %d)",
+        subreddit, len(kept), before_count, deleted, downloaded,
+        len(after), target,
+    )
+    return summary
+
+
+def rotate_all_themes(
+    *,
+    target: int = _DEFAULT_CACHE_TARGET,
+    keep_fraction: float = _ROTATION_KEEP_FRACTION,
+) -> dict[str, Any]:
+    """Run :func:`rotate_theme` for every *enabled* theme, update the
+    last-refresh bookkeeping, and push the new playlist to the TV.
+
+    Disabled themes are skipped: they're not contributing to the
+    slideshow anyway, so there's no value burning bandwidth rotating
+    their cache.
+    """
+
+    started = time.time()
+    with _lock:
+        themes = [t for t in _state.themes if t.enabled]
+
+    per_theme: list[dict[str, Any]] = []
+    for theme in themes:
+        try:
+            per_theme.append(
+                rotate_theme(
+                    theme.subreddit,
+                    target=target,
+                    keep_fraction=keep_fraction,
+                )
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.exception("Rotate: theme %s failed", theme.subreddit)
+            per_theme.append(
+                {"subreddit": theme.subreddit, "error": str(exc) or "error"}
+            )
+
+    total_kept = sum(p.get("kept", 0) for p in per_theme)
+    total_deleted = sum(p.get("deleted", 0) for p in per_theme)
+    total_downloaded = sum(p.get("downloaded", 0) for p in per_theme)
+    total_after = sum(p.get("after", 0) for p in per_theme)
+
+    summary = (
+        f"kept {total_kept}, deleted {total_deleted}, "
+        f"downloaded {total_downloaded}, now {total_after} cached"
+    )
+    with _lock:
+        _state.last_refresh_at = time.time()
+        _state.last_refresh_summary = f"rotate: {summary}"
+
+    # Slideshow catches the new set on its next mode refresh.
+    display.reapply_idle()
+    log.info(
+        "Rotation done in %.1fs across %d themes: %s",
+        time.time() - started, len(themes), summary,
+    )
+    return {
+        "summary": summary,
+        "themes": per_theme,
+        "target": target,
+    }
 
 
 def stop_for_video() -> bool:

@@ -17,7 +17,7 @@ from app.config import (
 )
 from app.routes import media as media_routes
 from app.routes import screensaver as screensaver_routes
-from app.services import audio_player, display, screensaver
+from app.services import audio_player, display, scheduler, screensaver, shuffle
 
 configure_logging()
 ensure_runtime_dirs()
@@ -29,7 +29,23 @@ display.init()
 # the first /api/play of an audio track snappy (loadfile over IPC
 # instead of fork+exec on the Pi 3).
 audio_player.init()
+# Register shuffle's end-of-track hook on the audio player so the music
+# shuffle mode can queue the next random track automatically.
+shuffle.init()
 screensaver.init()
+
+# Daily FIFO-ish rotation of cached subreddit images. Keeps a random
+# 25% of yesterday's cache and refills the rest with Reddit's current
+# top listing, so the slideshow stays fresh without losing all
+# familiar images overnight. Running in-app (rather than via
+# systemd/cron) keeps schedule + logic colocated and makes adding the
+# next daily/weekly task a one-liner -- see app/services/scheduler.py.
+scheduler.register(
+    "screensaver_rotate",
+    scheduler.daily("05:00"),
+    screensaver.rotate_all_themes,
+)
+scheduler.start()
 
 log = logging.getLogger("pi-hub")
 

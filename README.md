@@ -1,6 +1,6 @@
 STATUS: CANONICAL
 OWNER: trays
-LAST UPDATED: 2026-04-20
+LAST UPDATED: 2026-04-22
 SCOPE: Pi Hub network-controlled media server for Raspberry Pi — setup, API, screensaver, and operations.
 RELATED: docs/README.md, docs/INDEX.md, app/README.md, AGENTS.md
 
@@ -157,12 +157,17 @@ YouTube shows, then export a new `cookies.txt` and replace the file on the Pi.
 - `POST /api/download` — Body: `{ "url": "https://...", "audio_only": false }`. Starts a background download. With `audio_only=true` the file is extracted into the Music tab instead of the Video tab.
 - `GET /api/downloads` — List recent download jobs.
 - `GET /api/downloads/{id}` — Status of a single download job.
-- `POST /api/play` — Body: `{ "filename": "video.mp4", "library": "video" }`. Set `"library": "music"` to play an audio track headlessly over HDMI/ALSA without disturbing the slideshow on screen.
+- `POST /api/play` — Body: `{ "filename": "video.mp4", "library": "videos" }`. Set `"library": "music"` to play an audio track headlessly over HDMI/ALSA without disturbing the slideshow on screen.
 - `POST /api/stop` — Stops any current playback.
 - `GET /api/status` — Whether something is currently playing.
 - `POST /api/control/pause` — Toggle (or set) pause for the current video.
 - `POST /api/control/seek` — Body: `{ "seconds": 30 }`. Relative seek.
 - `POST /api/control/volume` — Body: `{ "delta": 10 }`. Adjust mpv volume.
+- `GET /api/music/shuffle` — Shuffle state (`active`, `current`).
+- `POST /api/music/shuffle/start` — Start continuous shuffle (plays a random track immediately).
+- `POST /api/music/shuffle/stop` — Stop shuffle (also stops audio playback).
+- `POST /api/music/shuffle/next` — Skip to the next random track (requires shuffle active).
+- `POST /api/music/shuffle/prev` — Go back to the previously-played track (requires shuffle active).
 - `POST /api/tv/wake` — Wake TV, switch to Pi input (HDMI-CEC).
 - `POST /api/tv/sleep` — Send TV to standby (HDMI-CEC).
 - `GET /api/screensaver` — Current screensaver state, themes, and cache counts.
@@ -174,6 +179,8 @@ YouTube shows, then export a new `cookies.txt` and replace the file on the Pi.
 - `POST /api/screensaver/themes` — Body: `{ "subreddit": "robotics" }`. Add a new theme. Accepts bare names, `r/name`, or full Reddit URLs. 400 on invalid input, 409 if the subreddit is already configured.
 - `DELETE /api/screensaver/themes/{name}` — Remove a theme and delete its cached images on disk.
 - `POST /api/screensaver/reload` — Reload `config/screensaver-themes.json` from disk.
+- `POST /api/screensaver/rotate` — FIFO-ish rotation: keep a random 25% of each enabled theme's cache, delete the rest, refill up to the target (`PI_HUB_THEME_CACHE_TARGET`, default 50). Also runs automatically every day at 05:00 local time.
+- `GET /api/screensaver/scheduler` — Snapshot of all registered recurring jobs (name, schedule, last run, last error, next fire time).
 - `GET /healthz` — Health check.
 
 ## Project Layout
@@ -196,6 +203,7 @@ pi-hub/
       cec.py           HDMI-CEC TV wake/sleep
       reddit.py        Subreddit image listing + cache
       screensaver.py   Slideshow lifecycle and theme management
+      scheduler.py     In-app daily/weekly job scheduler (cache rotation, future tasks)
   docs/
     README.md          Documentation portal
     INDEX.md           Documentation navigation map
@@ -264,6 +272,16 @@ after editing the file. Images are cached under
 so the slideshow keeps working even if Reddit is briefly unreachable.
 The yellow placeholder image is generated at startup into the same
 cache directory and can be safely deleted (it'll be regenerated).
+
+Every day at **05:00 local time** the in-app scheduler runs a
+FIFO-ish rotation for each enabled theme: it keeps a random 25% of
+yesterday's cache and refills the rest with Reddit's current top
+posts. Tune the target cache size via the `PI_HUB_THEME_CACHE_TARGET`
+environment variable (default 50). Press **Rotate now** in the UI to
+force a rotation on demand. On startup the scheduler performs a
+single catch-up fire for any missed tick (e.g. the Pi was off at 5
+AM), so a skipped day collapses to one rotation rather than a
+backlog.
 
 System dependency: `mpv` (already required for video playback) handles
 all three rendering modes.

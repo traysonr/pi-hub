@@ -1,6 +1,6 @@
 STATUS: CANONICAL
 OWNER: trays
-LAST UPDATED: 2026-04-20
+LAST UPDATED: 2026-04-22
 SCOPE: FastAPI application package — entrypoint, HTTP routes, and backing services for Pi Hub.
 RELATED: ../README.md, ../docs/README.md, ../docs/INDEX.md, ../AGENTS.md
 
@@ -20,8 +20,10 @@ RELATED: ../README.md, ../docs/README.md, ../docs/INDEX.md, ../AGENTS.md
 - `services/display.py` — Single long-lived `mpv` process and JSON IPC; owns HDMI transitions between slideshow, video, and yellow idle modes.
 - `services/audio_player.py` — Headless `mpv` backend for music playback over HDMI/ALSA without disturbing whatever the display controller is showing.
 - `services/player.py` — Playback facade dispatching between the video (display) and audio backends; also surfaces unified `/api/status` and remote controls.
+- `services/shuffle.py` — Continuous shuffle mode for the music library (plays random tracks end-to-end). Provides next/prev track controls for the Remote tab while shuffle is active.
 - `services/screensaver.py` — Theme configuration, Reddit-backed image cache, and idle-mode coordination with `display`.
 - `services/reddit.py` — Subreddit listing and on-disk image cache helpers.
+- `services/scheduler.py` — In-app daily/weekly job scheduler. Hosts the 05:00 cache rotation and is the hook point for future recurring tasks (scripts, reports, emails) without adding systemd timers or cron.
 - `services/catalogue.py`, `services/downloader.py`, `services/cec.py` — Video + music catalogue listings, `yt-dlp` jobs, and CEC helpers respectively.
 
 ## Configuration

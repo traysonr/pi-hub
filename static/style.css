@@ -185,6 +185,53 @@ main {
   font-size: var(--fs-small);
 }
 
+.music-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  flex: 0 1 auto;
+  align-items: center;
+}
+
+.music-actions button {
+  padding: 8px 14px;
+  font-size: var(--fs-small);
+}
+
+.shuffle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--accent, #3b82f6);
+  background: transparent;
+  color: var(--accent, #3b82f6);
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.shuffle-btn .glyph {
+  font-size: 1.1em;
+  line-height: 1;
+}
+
+.shuffle-btn:hover:not(:disabled) {
+  background: rgba(59, 130, 246, 0.12);
+}
+
+.shuffle-btn.active {
+  background: var(--accent, #3b82f6);
+  color: #0b1220;
+  border-color: var(--accent, #3b82f6);
+}
+
+.shuffle-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 label {
   display: block;
   font-size: var(--fs-tiny);

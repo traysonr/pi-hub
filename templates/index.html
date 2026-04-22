@@ -92,7 +92,13 @@
         <div class="card">
           <div class="card-head">
             <h2>Music</h2>
-            <button type="button" id="music-refresh-btn" class="ghost">Refresh</button>
+            <div class="music-actions">
+              <button type="button" id="shuffle-btn" class="shuffle-btn" aria-pressed="false">
+                <span class="glyph" aria-hidden="true">&#128256;</span>
+                <span class="lbl" id="shuffle-label">Shuffle</span>
+              </button>
+              <button type="button" id="music-refresh-btn" class="ghost">Refresh</button>
+            </div>
           </div>
           <ul id="music-list" class="video-list">
             <li class="empty">Loading…</li>
@@ -127,7 +133,13 @@
             <button type="button" id="ss-start-btn">Start now</button>
             <button type="button" id="ss-stop-btn" class="ghost">Stop</button>
             <button type="button" id="ss-refresh-btn" class="ghost">Refresh images</button>
+            <button type="button" id="ss-rotate-btn" class="ghost">Rotate now</button>
           </div>
+          <p class="hint">
+            The cache auto-rotates every day at 05:00 (keeps a random 25% of
+            yesterday's images, replaces the other 75% with Reddit's current
+            top posts). Press <strong>Rotate now</strong> to run it on demand.
+          </p>
         </div>
 
         <div class="card">
@@ -208,6 +220,17 @@
             <button type="button" class="remote-btn vol" data-volume="10" aria-label="Volume up">
               <span class="glyph" aria-hidden="true">+</span>
               <span class="lbl">Vol</span>
+            </button>
+          </div>
+
+          <div class="remote-row track-row" id="track-row" hidden>
+            <button type="button" class="remote-btn track" id="prev-track-btn" aria-label="Previous track">
+              <span class="glyph" aria-hidden="true">&#9198;</span>
+              <span class="lbl">Prev track</span>
+            </button>
+            <button type="button" class="remote-btn track" id="next-track-btn" aria-label="Next track">
+              <span class="glyph" aria-hidden="true">&#9197;</span>
+              <span class="lbl">Next track</span>
             </button>
           </div>
 

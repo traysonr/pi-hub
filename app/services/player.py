@@ -27,7 +27,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from app.services import audio_player, display
+from app.services import audio_player, display, shuffle
 
 log = logging.getLogger(__name__)
 
@@ -74,6 +74,11 @@ def play_video(path: Path) -> int:
     if not path.is_file():
         raise FileNotFoundError(f"Video not found: {path}")
 
+    # Starting a video always cancels shuffle (user's explicit intent
+    # per the UI contract). Clear the flag before we stop audio so an
+    # in-flight end-file event doesn't try to queue another track.
+    shuffle.stop(also_stop_audio=False)
+
     # If audio is currently playing, stop it so we don't get music under
     # the new video.
     if _audio_active():
@@ -101,6 +106,11 @@ def play_audio(path: Path) -> int:
     if not path.is_file():
         raise FileNotFoundError(f"Audio file not found: {path}")
 
+    # Explicitly picking a single track also exits shuffle — otherwise
+    # the next natural end-of-file would snap the user back into random
+    # rotation, which is surprising after a deliberate "play this one".
+    shuffle.stop(also_stop_audio=False)
+
     # Mutual exclusion with video: if a video is on screen the user just
     # asked us to switch to a music track instead, so stop the video and
     # let the display fall back to its idle (slideshow / yellow).
@@ -121,12 +131,16 @@ def play_audio(path: Path) -> int:
 def stop() -> bool:
     """Stop whichever backend is playing. Returns True if anything was."""
 
+    # Clear shuffle first so the imminent audio stop doesn't race with a
+    # new track being queued by the end-of-file hook.
+    shuffle_was_active = shuffle.stop(also_stop_audio=False)
+
     stopped = False
     if _video_active():
         stopped = display.stop_video() or stopped
     if _audio_active():
         stopped = audio_player.stop() or stopped
-    return stopped
+    return stopped or shuffle_was_active
 
 
 # --- Remote-control dispatch -------------------------------------------
@@ -215,6 +229,8 @@ def get_state() -> dict[str, Any]:
     paths stop the other backend) so order rarely matters.
     """
 
+    shuffle_active = shuffle.is_active()
+
     if _video_active():
         state: dict[str, Any] = {"playing": True, "kind": "video"}
         for prop, key in (
@@ -229,12 +245,14 @@ def get_state() -> dict[str, Any]:
                 state[key] = display.get_property(prop)
             except (display.DisplayNotRunning, RuntimeError):
                 state[key] = None
+        state["shuffle_active"] = shuffle_active
         return state
 
     if _audio_active():
         state = audio_player.get_state()
         if state.get("playing"):
             state["kind"] = "audio"
+        state["shuffle_active"] = shuffle_active
         return state
 
-    return {"playing": False}
+    return {"playing": False, "shuffle_active": shuffle_active}

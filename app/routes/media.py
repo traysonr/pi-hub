@@ -8,7 +8,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, HTTPException, Path as PathParam
 from pydantic import AliasChoices, BaseModel, Field, field_validator
 
-from app.services import catalogue, cec, downloader, player, screensaver
+from app.services import catalogue, cec, downloader, player, screensaver, shuffle
 
 log = logging.getLogger(__name__)
 
@@ -239,6 +239,47 @@ def post_volume(payload: VolumeRequest) -> dict[str, Any]:
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     return {"status": "ok", "volume": new_volume}
+
+
+@router.get("/music/shuffle")
+def get_shuffle() -> dict[str, Any]:
+    return {
+        "active": shuffle.is_active(),
+        "current": shuffle.current_filename(),
+    }
+
+
+@router.post("/music/shuffle/start")
+def post_shuffle_start() -> dict[str, Any]:
+    try:
+        result = shuffle.start()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"status": "ok", **result}
+
+
+@router.post("/music/shuffle/stop")
+def post_shuffle_stop() -> dict[str, Any]:
+    was_active = shuffle.stop()
+    return {"status": "ok", "was_active": was_active, "active": False}
+
+
+@router.post("/music/shuffle/next")
+def post_shuffle_next() -> dict[str, Any]:
+    try:
+        result = shuffle.next_track()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"status": "ok", **result}
+
+
+@router.post("/music/shuffle/prev")
+def post_shuffle_prev() -> dict[str, Any]:
+    try:
+        result = shuffle.prev_track()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"status": "ok", **result}
 
 
 @router.post("/tv/wake")
