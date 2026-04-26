@@ -23,13 +23,16 @@ import random
 import threading
 from typing import Any
 
-from app.services import audio_player, catalogue
+from app.services import audio_player, catalogue, metadata
 
 log = logging.getLogger(__name__)
 
 _lock = threading.Lock()
 _active = False
 _current_filename: str | None = None
+# When set, only tracks whose metadata category matches are eligible
+# for shuffling. None = no filter (default "shuffle all" behaviour).
+_category_filter: str | None = None
 _initialized = False
 # Chronological list of previously-played track filenames (oldest first).
 # Bounded so a long shuffle session doesn't grow memory without end.
@@ -57,14 +60,47 @@ def current_filename() -> str | None:
         return _current_filename
 
 
-def start() -> dict[str, Any]:
-    """Enter shuffle mode and kick off the first random track."""
+def current_category() -> str | None:
+    with _lock:
+        return _category_filter
+
+
+def _eligible_tracks() -> list[catalogue.MediaEntry]:
+    """Apply the active category filter (if any) to the music catalogue."""
 
     tracks = catalogue.list_music()
-    if not tracks:
+    with _lock:
+        category = _category_filter
+    if category is None:
+        return tracks
+    catalog = metadata.load("audio")
+    filtered = [
+        t for t in tracks
+        if (catalog.get(t.filename) or {}).get("category", "") == category
+    ]
+    return filtered
+
+
+def start(category: str | None = None) -> dict[str, Any]:
+    """Enter shuffle mode and kick off the first random track.
+
+    ``category`` filters the shuffle pool to tracks tagged with that
+    metadata category. ``None`` (the default) shuffles the whole
+    library — matches the existing "Shuffle all" UX.
+    """
+
+    global _active, _category_filter
+    with _lock:
+        _category_filter = category if category else None
+
+    pool = _eligible_tracks()
+    if not pool:
+        with _lock:
+            _category_filter = None
+        if category:
+            raise RuntimeError(f"No tracks in category {category!r}")
         raise RuntimeError("No music tracks available to shuffle")
 
-    global _active
     with _lock:
         _active = True
 
@@ -74,9 +110,14 @@ def start() -> dict[str, Any]:
         # Roll back the flag if we couldn't start anything at all.
         with _lock:
             _active = False
+            _category_filter = None
         raise
 
-    return {"active": is_active(), "current": current_filename()}
+    return {
+        "active": is_active(),
+        "current": current_filename(),
+        "category": current_category(),
+    }
 
 
 def stop(*, also_stop_audio: bool = True) -> bool:
@@ -87,11 +128,12 @@ def stop(*, also_stop_audio: bool = True) -> bool:
     ``player.play_audio``) to avoid redundant IPC work.
     """
 
-    global _active, _current_filename
+    global _active, _current_filename, _category_filter
     with _lock:
         was_active = _active
         _active = False
         _current_filename = None
+        _category_filter = None
         _history.clear()
 
     if was_active and also_stop_audio and audio_player.is_playing():
@@ -179,9 +221,12 @@ def _play_next() -> None:
 
     global _current_filename, _active
 
-    tracks = catalogue.list_music()
+    tracks = _eligible_tracks()
     if not tracks:
-        log.info("Shuffle: music library empty; disabling shuffle")
+        log.info(
+            "Shuffle: no eligible tracks (category=%s); disabling shuffle",
+            current_category(),
+        )
         with _lock:
             _active = False
         return

@@ -16,5 +16,7 @@ bulk.txt
 *.urls.txt
 secrets/
 config/screensaver-themes.json
+config/video-catalog.json
+config/audio-catalog.json
 *.log
 .DS_Store

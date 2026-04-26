@@ -8,7 +8,15 @@ from typing import Any, Literal
 from fastapi import APIRouter, HTTPException, Path as PathParam
 from pydantic import AliasChoices, BaseModel, Field, field_validator
 
-from app.services import catalogue, cec, downloader, player, screensaver, shuffle
+from app.services import (
+    catalogue,
+    cec,
+    downloader,
+    metadata,
+    player,
+    screensaver,
+    shuffle,
+)
 
 log = logging.getLogger(__name__)
 
@@ -53,10 +61,51 @@ class PauseRequest(BaseModel):
     paused: bool | None = None
 
 
+class ShuffleStartRequest(BaseModel):
+    # Optional metadata category to shuffle. ``None`` / missing /
+    # empty-string => shuffle the whole library (the default UX).
+    category: str | None = Field(default=None, max_length=128)
+
+    @field_validator("category")
+    @classmethod
+    def _normalize_category(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        return value or None
+
+
+def _merge_metadata(items: list[dict[str, Any]], kind: str) -> list[dict[str, Any]]:
+    """Decorate catalogue items with the JSON metadata fields.
+
+    The metadata service is the source of truth for every per-file
+    attribute beyond what the filesystem can tell us (category,
+    play_count, plus anything we add later — favourite flags, tags,
+    etc.). Merging happens here so every consumer of the catalog API
+    sees a single, fully-populated record without each frontend having
+    to fetch the JSON separately.
+    """
+
+    catalog = metadata.load(kind)  # type: ignore[arg-type]
+    enriched: list[dict[str, Any]] = []
+    for item in items:
+        meta = catalog.get(item["filename"]) or {"category": "", "play_count": 0}
+        # Order matters: metadata wins over any same-named filesystem
+        # attribute, but currently they don't overlap.
+        enriched.append({**item, **meta})
+    return enriched
+
+
 @router.get("/videos")
 def get_videos() -> dict[str, Any]:
-    videos = [v.to_dict() for v in catalogue.list_videos()]
-    return {"videos": videos, "count": len(videos)}
+    items = _merge_metadata(
+        [v.to_dict() for v in catalogue.list_videos()], "video"
+    )
+    return {
+        "videos": items,
+        "count": len(items),
+        "categories": metadata.list_categories("video"),
+    }
 
 
 @router.delete("/videos/{filename:path}")
@@ -79,14 +128,21 @@ def delete_video(
         log.exception("Failed to delete %s", path)
         raise HTTPException(status_code=500, detail=f"Delete failed: {exc}") from exc
 
+    metadata.remove(path.name, "video")
     log.info("Deleted %s", path.name)
     return {"status": "deleted", "filename": path.name}
 
 
 @router.get("/music")
 def get_music() -> dict[str, Any]:
-    tracks = [t.to_dict() for t in catalogue.list_music()]
-    return {"tracks": tracks, "count": len(tracks)}
+    items = _merge_metadata(
+        [t.to_dict() for t in catalogue.list_music()], "audio"
+    )
+    return {
+        "tracks": items,
+        "count": len(items),
+        "categories": metadata.list_categories("audio"),
+    }
 
 
 @router.delete("/music/{filename:path}")
@@ -109,6 +165,7 @@ def delete_track(
         log.exception("Failed to delete %s", path)
         raise HTTPException(status_code=500, detail=f"Delete failed: {exc}") from exc
 
+    metadata.remove(path.name, "audio")
     log.info("Deleted %s", path.name)
     return {"status": "deleted", "filename": path.name}
 
@@ -171,6 +228,11 @@ def post_play(payload: PlayRequest) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    try:
+        metadata.increment_play_count(path.name, "audio" if is_audio else "video")
+    except Exception:
+        log.exception("metadata: failed to bump play_count for %s", path.name)
 
     if is_audio:
         log.info("Playing audio %s (pid=%s)", path.name, pid)
@@ -246,13 +308,16 @@ def get_shuffle() -> dict[str, Any]:
     return {
         "active": shuffle.is_active(),
         "current": shuffle.current_filename(),
+        "category": shuffle.current_category(),
+        "categories": metadata.list_categories("audio"),
     }
 
 
 @router.post("/music/shuffle/start")
-def post_shuffle_start() -> dict[str, Any]:
+def post_shuffle_start(payload: ShuffleStartRequest | None = None) -> dict[str, Any]:
+    category = payload.category if payload else None
     try:
-        result = shuffle.start()
+        result = shuffle.start(category=category)
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {"status": "ok", **result}

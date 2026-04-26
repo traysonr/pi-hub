@@ -1,6 +1,6 @@
 STATUS: CANONICAL
 OWNER: trays
-LAST UPDATED: 2026-04-22
+LAST UPDATED: 2026-04-26
 SCOPE: FastAPI application package — entrypoint, HTTP routes, and backing services for Pi Hub.
 RELATED: ../README.md, ../docs/README.md, ../docs/INDEX.md, ../AGENTS.md
 
@@ -25,6 +25,7 @@ RELATED: ../README.md, ../docs/README.md, ../docs/INDEX.md, ../AGENTS.md
 - `services/reddit.py` — Subreddit listing and on-disk image cache helpers.
 - `services/scheduler.py` — In-app daily/weekly job scheduler. Hosts the 05:00 cache rotation and is the hook point for future recurring tasks (scripts, reports, emails) without adding systemd timers or cron.
 - `services/catalogue.py`, `services/downloader.py`, `services/cec.py` — Video + music catalogue listings, `yt-dlp` jobs, and CEC helpers respectively.
+- `services/metadata.py` — Per-file JSON catalog (`config/video-catalog.json`, `config/audio-catalog.json`) tracking `category` and `play_count` for every video/audio file. Auto-maintained: downloader registers new entries on success, delete routes prune entries, the play route increments `play_count`, and `sync_all()` runs at boot to reconcile with the on-disk media directories. `GET /api/videos` and `GET /api/music` decorate every item with the full metadata blob plus a `categories` summary so the UI can filter/sort generically (extending to a new attribute is one entry in the frontend filter config). `POST /api/music/shuffle/start` accepts an optional `{category}` so the Music tab's shuffle button can scope the pool to a single category.
 
 ## Configuration
 

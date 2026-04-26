@@ -33,6 +33,7 @@
     ssStopBtn: document.getElementById("ss-stop-btn"),
     ssRefreshBtn: document.getElementById("ss-refresh-btn"),
     ssRotateBtn: document.getElementById("ss-rotate-btn"),
+    ssDeleteCurrentBtn: document.getElementById("ss-delete-current-btn"),
     ssReloadBtn: document.getElementById("ss-reload-btn"),
     ssThemes: document.getElementById("ss-themes"),
     ssMeta: document.getElementById("ss-meta"),
@@ -53,6 +54,9 @@
       screensaver: document.getElementById("tabbtn-screensaver"),
       remote: document.getElementById("tabbtn-remote"),
     },
+    shuffleModal: document.getElementById("shuffle-modal"),
+    shuffleModalOptions: document.getElementById("shuffle-modal-options"),
+    shuffleModalCancel: document.getElementById("shuffle-modal-cancel"),
   };
 
   let activeJobId = null;
@@ -167,6 +171,103 @@
     },
   };
 
+  // The catalog API decorates every item with all metadata fields
+  // (currently `category` and `play_count`). Filter/sort presets are
+  // declarative so adding a future attribute (favourite, duration, tag
+  // list, …) is a single config entry here plus a new <option>.
+  const FILTER_STATE = {
+    videos: { category: "", sort: "recent" },
+    music: { category: "", sort: "recent" },
+  };
+
+  // libraryCache keeps the last fetched payload so re-applying a filter
+  // doesn't require another network round-trip.
+  const libraryCache = { videos: null, music: null };
+
+  const SORTERS = {
+    recent: (a, b) => (b.modified || 0) - (a.modified || 0),
+    plays: (a, b) =>
+      (b.play_count || 0) - (a.play_count || 0) ||
+      (b.modified || 0) - (a.modified || 0),
+    title: (a, b) =>
+      (a.title || a.filename || "").localeCompare(
+        b.title || b.filename || "",
+        undefined,
+        { sensitivity: "base" }
+      ),
+  };
+
+  function applyFilter(kind, items) {
+    const state = FILTER_STATE[kind];
+    let out = items.slice();
+    if (state.category) {
+      out = out.filter((it) => (it.category || "") === state.category);
+    }
+    const sorter = SORTERS[state.sort] || SORTERS.recent;
+    out.sort(sorter);
+    return out;
+  }
+
+  function renderCategoryDropdown(kind, categories, total) {
+    const select = document.querySelector(
+      `.filter-category[data-library="${kind}"]`
+    );
+    if (!select) return;
+    const current = FILTER_STATE[kind].category;
+    select.innerHTML = "";
+
+    const all = document.createElement("option");
+    all.value = "";
+    all.textContent = `All (${total})`;
+    select.appendChild(all);
+
+    for (const cat of categories) {
+      const opt = document.createElement("option");
+      // "" is a legitimate stored category (default), but the UI labels
+      // it explicitly so users understand it means "no category set".
+      opt.value = cat.name;
+      opt.textContent = `${cat.name || "(uncategorized)"} (${cat.count})`;
+      select.appendChild(opt);
+    }
+
+    // Preserve the user's selection if it still exists; otherwise fall
+    // back to "All".
+    const stillExists =
+      current === "" || categories.some((c) => c.name === current);
+    select.value = stillExists ? current : "";
+    if (!stillExists) FILTER_STATE[kind].category = "";
+  }
+
+  function updateFilterCount(kind, shown, total) {
+    const el = document.querySelector(`.filter-count[data-library="${kind}"]`);
+    if (!el) return;
+    el.textContent =
+      shown === total ? `${total} items` : `${shown} of ${total}`;
+  }
+
+  for (const select of document.querySelectorAll(".filter-category")) {
+    select.addEventListener("change", () => {
+      const kind = select.dataset.library;
+      FILTER_STATE[kind].category = select.value;
+      rerenderLibrary(kind);
+    });
+  }
+  for (const select of document.querySelectorAll(".filter-sort")) {
+    select.addEventListener("change", () => {
+      const kind = select.dataset.library;
+      FILTER_STATE[kind].sort = select.value;
+      rerenderLibrary(kind);
+    });
+  }
+
+  function rerenderLibrary(kind) {
+    const cached = libraryCache[kind];
+    if (!cached) return;
+    const filtered = applyFilter(kind, cached.items);
+    renderLibrary(kind, filtered);
+    updateFilterCount(kind, filtered.length, cached.items.length);
+  }
+
   async function loadLibrary(kind) {
     const cfg = LIBRARIES[kind];
     if (!cfg) return;
@@ -174,7 +275,13 @@
     if (!listEl) return;
     try {
       const data = await api(cfg.api);
-      renderLibrary(kind, data[cfg.itemsKey] || []);
+      const items = data[cfg.itemsKey] || [];
+      const categories = data.categories || [];
+      libraryCache[kind] = { items, categories };
+      renderCategoryDropdown(kind, categories, items.length);
+      const filtered = applyFilter(kind, items);
+      renderLibrary(kind, filtered);
+      updateFilterCount(kind, filtered.length, items.length);
     } catch (err) {
       listEl.innerHTML = "";
       const li = document.createElement("li");
@@ -212,6 +319,12 @@
       const sub = document.createElement("span");
       sub.className = "sub";
       const parts = [];
+      if (item.category) parts.push(item.category);
+      if (Number.isFinite(item.play_count) && item.play_count > 0) {
+        parts.push(
+          `${item.play_count} play${item.play_count === 1 ? "" : "s"}`
+        );
+      }
       if (item.size_bytes) parts.push(fmtSize(item.size_bytes));
       if (item.modified) parts.push(fmtDate(item.modified));
       sub.textContent = parts.join(" · ");
@@ -499,36 +612,119 @@
     }
   });
 
+  async function startShuffleWithCategory(category) {
+    closeShuffleModal();
+    els.shuffleBtn.disabled = true;
+    try {
+      const body = category ? { category } : {};
+      const data = await api("/api/music/shuffle/start", {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      setShuffleUi(!!data.active);
+      const label = category
+        ? `Shuffling ${category}…`
+        : data.current || "Shuffling…";
+      setPlayerStatus({
+        playing: true,
+        paused: false,
+        kind: "audio",
+        title: data.current || label,
+        shuffle_active: true,
+      });
+      showTab("remote");
+      schedulePolling();
+    } catch (err) {
+      setStatus(els.downloadStatus, `Shuffle failed: ${err.message}`, "error");
+    } finally {
+      els.shuffleBtn.disabled = false;
+      refreshPlayerStatus();
+    }
+  }
+
+  function openShuffleModal() {
+    if (!els.shuffleModal || !els.shuffleModalOptions) return;
+    // Pull the freshest category list available — prefer the cached
+    // music payload, fall back to a one-shot fetch so the modal is
+    // useful even if the Music tab hasn't been opened yet this session.
+    const cached = libraryCache.music;
+    const renderOptions = (categories, total) => {
+      els.shuffleModalOptions.innerHTML = "";
+
+      const allLi = document.createElement("li");
+      const allBtn = document.createElement("button");
+      allBtn.type = "button";
+      allBtn.className = "opt-all";
+      allBtn.innerHTML = `<span>All</span><span class="opt-count">${total} tracks</span>`;
+      allBtn.addEventListener("click", () => startShuffleWithCategory(null));
+      allLi.appendChild(allBtn);
+      els.shuffleModalOptions.appendChild(allLi);
+
+      for (const cat of categories) {
+        const li = document.createElement("li");
+        const btn = document.createElement("button");
+        btn.type = "button";
+        const label = cat.name || "(uncategorized)";
+        btn.innerHTML = `<span>${label}</span><span class="opt-count">${cat.count}</span>`;
+        btn.addEventListener("click", () =>
+          startShuffleWithCategory(cat.name)
+        );
+        li.appendChild(btn);
+        els.shuffleModalOptions.appendChild(li);
+      }
+
+      els.shuffleModal.hidden = false;
+      els.shuffleModal.setAttribute("aria-hidden", "false");
+    };
+
+    if (cached) {
+      renderOptions(cached.categories || [], cached.items.length);
+      return;
+    }
+    api("/api/music/shuffle")
+      .then((data) =>
+        renderOptions(data.categories || [], (data.categories || []).reduce((s, c) => s + (c.count || 0), 0))
+      )
+      .catch(() => renderOptions([], 0));
+  }
+
+  function closeShuffleModal() {
+    if (!els.shuffleModal) return;
+    els.shuffleModal.hidden = true;
+    els.shuffleModal.setAttribute("aria-hidden", "true");
+  }
+
+  if (els.shuffleModalCancel) {
+    els.shuffleModalCancel.addEventListener("click", closeShuffleModal);
+  }
+  if (els.shuffleModal) {
+    els.shuffleModal.addEventListener("click", (event) => {
+      if (event.target === els.shuffleModal) closeShuffleModal();
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && !els.shuffleModal.hidden) {
+        closeShuffleModal();
+      }
+    });
+  }
+
   if (els.shuffleBtn) {
     els.shuffleBtn.addEventListener("click", async () => {
-      els.shuffleBtn.disabled = true;
-      const wasActive = shuffleActive;
-      try {
-        if (wasActive) {
+      if (shuffleActive) {
+        els.shuffleBtn.disabled = true;
+        try {
           await api("/api/music/shuffle/stop", { method: "POST" });
           setShuffleUi(false);
           setPlayerStatus({ playing: false, shuffle_active: false });
-        } else {
-          const data = await api("/api/music/shuffle/start", { method: "POST" });
-          setShuffleUi(!!data.active);
-          // A track just started; pivot to the remote so the user can
-          // control volume / skip / stop without hunting for the tab.
-          setPlayerStatus({
-            playing: true,
-            paused: false,
-            kind: "audio",
-            title: data.current || "Shuffling…",
-            shuffle_active: true,
-          });
-          showTab("remote");
-          schedulePolling();
+        } catch (err) {
+          setStatus(els.downloadStatus, `Shuffle failed: ${err.message}`, "error");
+        } finally {
+          els.shuffleBtn.disabled = false;
+          refreshPlayerStatus();
         }
-      } catch (err) {
-        setStatus(els.downloadStatus, `Shuffle failed: ${err.message}`, "error");
-      } finally {
-        els.shuffleBtn.disabled = false;
-        refreshPlayerStatus();
+        return;
       }
+      openShuffleModal();
     });
   }
 
@@ -702,6 +898,13 @@
     setStatus(els.ssStatus, bits.join(" \u00b7 "));
     if (state.last_error) {
       setStatus(els.ssStatus, state.last_error, "error");
+    }
+
+    if (els.ssDeleteCurrentBtn) {
+      const canDelete = !!state.can_delete_current_image;
+      els.ssDeleteCurrentBtn.disabled = !canDelete;
+      const label = state.current_image ? `Delete current image (${state.current_image})` : "Delete current image";
+      els.ssDeleteCurrentBtn.textContent = label;
     }
 
     if (els.ssMeta) {
@@ -932,6 +1135,27 @@
       } finally {
         els.ssRotateBtn.disabled = false;
         els.ssRotateBtn.textContent = originalText;
+      }
+    });
+  }
+
+  if (els.ssDeleteCurrentBtn) {
+    els.ssDeleteCurrentBtn.addEventListener("click", async () => {
+      if (
+        !window.confirm(
+          "Delete the image currently being displayed? This removes it from the cache."
+        )
+      ) {
+        return;
+      }
+      els.ssDeleteCurrentBtn.disabled = true;
+      try {
+        const data = await api("/api/screensaver/current/delete", { method: "POST" });
+        renderScreensaver(data);
+        setStatus(els.ssStatus, "Deleted current image.", "success");
+      } catch (err) {
+        setStatus(els.ssStatus, `Delete failed: ${err.message}`, "error");
+        refreshScreensaver();
       }
     });
   }

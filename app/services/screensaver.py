@@ -211,6 +211,20 @@ def get_status() -> dict[str, Any]:
     # nest screensaver._lock inside display._lock (the inverse order is
     # used by the playlist-provider callback path).
     display_state = display.get_state()
+    current_path = display.get_current_path()
+    current_image: str | None = None
+    can_delete_current = False
+    if display_state.get("mode") == display.MODE_SLIDESHOW and current_path:
+        try:
+            p = Path(current_path).resolve()
+            cache_root = SCREENSAVER_CACHE_DIR.resolve()
+            if p.is_file() and cache_root in p.parents:
+                # Don't ever expose/delete internal helper files.
+                if p.name not in ("_playlist.m3u", "_pi-hub-yellow.png"):
+                    current_image = p.name
+                    can_delete_current = True
+        except OSError:
+            pass
     with _lock:
         return {
             "enabled": _state.enabled,
@@ -230,6 +244,8 @@ def get_status() -> dict[str, Any]:
             "video_playing": display_state.get("mode") == display.MODE_VIDEO,
             "display_mode": display_state.get("mode"),
             "idle_mode": display_state.get("idle_mode"),
+            "current_image": current_image,
+            "can_delete_current_image": can_delete_current,
         }
 
 
@@ -636,6 +652,44 @@ def stop_for_video() -> bool:
     """
 
     return display.get_state().get("mode") == display.MODE_SLIDESHOW
+
+
+def delete_current_image() -> dict[str, Any]:
+    """Delete the image currently being displayed by the slideshow.
+
+    Only applies when the display controller is in slideshow mode, and only
+    deletes files under the screensaver cache directory.
+    """
+
+    display_state = display.get_state()
+    if display_state.get("mode") != display.MODE_SLIDESHOW:
+        raise RuntimeError("Screensaver is not currently showing images.")
+
+    current = display.get_current_path()
+    if not current:
+        raise RuntimeError("Could not determine the current image.")
+
+    try:
+        path = Path(current).resolve()
+        cache_root = SCREENSAVER_CACHE_DIR.resolve()
+    except OSError as exc:
+        raise RuntimeError(f"Invalid current image path: {exc}") from exc
+
+    if cache_root not in path.parents:
+        raise RuntimeError("Current image is not part of the screensaver cache.")
+    if path.name in ("_playlist.m3u", "_pi-hub-yellow.png"):
+        raise RuntimeError("Current image is not deletable.")
+    if not path.is_file():
+        raise RuntimeError("Current image file no longer exists.")
+
+    try:
+        path.unlink()
+    except OSError as exc:
+        raise RuntimeError(f"Failed to delete image: {exc}") from exc
+
+    # Rebuild playlist so the deleted image disappears immediately.
+    display.reapply_idle()
+    return get_status()
 
 
 # --- Internals ---------------------------------------------------------

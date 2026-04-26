@@ -17,10 +17,22 @@ from app.config import (
 )
 from app.routes import media as media_routes
 from app.routes import screensaver as screensaver_routes
-from app.services import audio_player, display, scheduler, screensaver, shuffle
+from app.services import (
+    audio_player,
+    display,
+    metadata,
+    scheduler,
+    screensaver,
+    shuffle,
+)
 
 configure_logging()
 ensure_runtime_dirs()
+# Reconcile the JSON catalogs with the on-disk media directories so any
+# files that pre-date the metadata feature (or were added/removed
+# outside the app) get default entries created or stale entries pruned
+# before the first request lands.
+metadata.sync_all()
 # Start the persistent mpv display controller before the screensaver
 # subsystem registers its playlist provider. The controller is what
 # keeps the TV from ever falling back to the Linux console.

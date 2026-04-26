@@ -105,6 +105,14 @@ def post_rotate() -> dict[str, Any]:
     return {"rotation": result, "status": screensaver.get_status()}
 
 
+@router.post("/current/delete")
+def post_delete_current_image() -> dict[str, Any]:
+    try:
+        return screensaver.delete_current_image()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 @router.get("/scheduler")
 def get_scheduler() -> dict[str, Any]:
     """Expose the shared scheduler snapshot -- currently just the

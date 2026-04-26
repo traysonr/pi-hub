@@ -214,6 +214,23 @@ def get_state() -> dict[str, Any]:
         }
 
 
+def get_current_path() -> str | None:
+    """Best-effort: ask mpv what file is currently loaded.
+
+    In video mode this is the active video path; in slideshow mode it is the
+    currently displayed image path. Returns None if mpv is not running or the
+    property is unavailable.
+    """
+
+    if not _is_proc_alive():
+        return None
+    try:
+        val = get_property("path")
+    except Exception:  # noqa: BLE001
+        return None
+    return val if isinstance(val, str) else None
+
+
 def is_video_mode() -> bool:
     with _lock:
         return _state.mode == MODE_VIDEO and _is_proc_alive()

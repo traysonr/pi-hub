@@ -477,6 +477,13 @@ button.ghost.danger {
   grid-template-columns: 1fr;
 }
 
+/* Track navigation row has 2 buttons but uses the same 3-column grid as the
+   volume row; force "Next track" into the right-most column so it mirrors
+   "Prev track" on the left. */
+.track-row #next-track-btn {
+  grid-column: 3;
+}
+
 .vol-readout {
   text-align: center;
   font-variant-numeric: tabular-nums;
@@ -850,4 +857,153 @@ button.ghost.danger {
     padding-top: 6px;
     padding-bottom: 6px;
   }
+}
+
+/* --- Filter row (Video / Music tabs) --- */
+
+.filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  align-items: end;
+  margin: 6px 0 12px;
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.filter-row label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 140px;
+  min-width: 0;
+}
+
+.filter-label {
+  font-size: var(--fs-tiny);
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.filter-row select {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: var(--fs-body);
+  min-height: 38px;
+  width: 100%;
+  appearance: none;
+}
+
+.filter-row select:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.filter-count {
+  align-self: center;
+  font-size: var(--fs-small);
+  color: var(--muted);
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.video .play-count {
+  font-size: var(--fs-tiny);
+  color: var(--muted);
+  margin-left: 8px;
+}
+
+/* --- Shuffle category modal --- */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  padding: 16px;
+}
+
+.modal-backdrop[hidden] {
+  display: none;
+}
+
+.modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 18px;
+  width: min(420px, 100%);
+  max-height: 85vh;
+  overflow-y: auto;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+}
+
+.modal h2 {
+  margin: 0 0 8px;
+  font-size: var(--fs-h2);
+}
+
+.modal .hint {
+  margin: 0 0 12px;
+}
+
+.shuffle-options {
+  list-style: none;
+  margin: 0 0 14px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.shuffle-options li {
+  margin: 0;
+}
+
+.shuffle-options button {
+  width: 100%;
+  text-align: left;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: var(--fs-body);
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.shuffle-options button:hover,
+.shuffle-options button:focus-visible {
+  background: var(--surface-3);
+  border-color: var(--accent);
+  outline: none;
+}
+
+.shuffle-options .opt-count {
+  font-size: var(--fs-tiny);
+  color: var(--muted);
+}
+
+.shuffle-options .opt-all {
+  font-weight: 600;
+  border-color: var(--accent-soft);
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
 }

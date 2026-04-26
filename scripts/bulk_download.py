@@ -36,6 +36,17 @@ Exit code is 0 if every URL succeeded, 1 otherwise (a per-URL summary
 is printed at the end so a partial failure is easy to diagnose).
 """
 
+# Usage example (copy/paste):
+#   # 1) Create a URL list (blank lines and # comments are ignored)
+#   cat > bulk.txt <<'EOF'
+#   https://www.youtube.com/watch?v=dQw4w9WgXcQ
+#   # https://www.youtube.com/watch?v=... (more URLs)
+#   EOF
+#
+#   # 2) Run from the project root (venv assumed at .venv/)
+#   .venv/bin/python scripts/bulk_download.py video bulk.txt
+#   .venv/bin/python scripts/bulk_download.py audio bulk.txt
+#
 from __future__ import annotations
 
 import argparse

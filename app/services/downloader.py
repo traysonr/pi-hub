@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Literal
 
 from app.config import MUSIC_DIR, PROJECT_ROOT, VIDEO_DIR
+from app.services import metadata
 
 log = logging.getLogger(__name__)
 
@@ -385,6 +386,20 @@ def _run_download(job: DownloadJob) -> None:
         filename = final_path[-1].rsplit("/", 1)[-1]
 
     log.info("Download complete: id=%s filename=%s", job.id, filename)
+
+    # Register the new file in the metadata catalog so it's filterable
+    # right away (category="" and play_count=0). Both the web "Add" tab
+    # and scripts/bulk_download.py call _run_download, so this single
+    # hook keeps both import paths in sync with the JSON catalog.
+    if filename:
+        try:
+            metadata.register(filename, "audio" if job.audio_only else "video")
+        except Exception:
+            log.exception(
+                "metadata: failed to register %s entry for %s",
+                "audio" if job.audio_only else "video", filename,
+            )
+
     _set_status(job, "success", "Download complete", filename=filename)
 
 

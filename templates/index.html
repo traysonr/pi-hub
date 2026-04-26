@@ -16,20 +16,6 @@
     <main>
       <section class="tab-panel" id="tab-add" role="tabpanel" aria-labelledby="tabbtn-add">
         <div class="card">
-          <div class="card-head">
-            <h2>TV</h2>
-            <div class="tv-actions">
-              <button type="button" id="tv-wake-btn">Wake TV</button>
-              <button type="button" id="tv-sleep-btn" class="ghost danger">Sleep TV</button>
-            </div>
-          </div>
-          <p class="hint" id="tv-status">
-            Wake powers the TV on and switches to this input. It also runs
-            automatically when you play a video.
-          </p>
-        </div>
-
-        <div class="card">
           <h2>Add From YouTube</h2>
           <form id="download-form" autocomplete="off">
             <label for="url">YouTube URL</label>
@@ -76,6 +62,21 @@
             <h2>Videos</h2>
             <button type="button" id="refresh-btn" class="ghost">Refresh</button>
           </div>
+          <div class="filter-row" data-library="videos">
+            <label>
+              <span class="filter-label">Category</span>
+              <select class="filter-category" data-library="videos"></select>
+            </label>
+            <label>
+              <span class="filter-label">Sort</span>
+              <select class="filter-sort" data-library="videos">
+                <option value="recent">Recently added</option>
+                <option value="plays">Most played</option>
+                <option value="title">Title (A–Z)</option>
+              </select>
+            </label>
+            <span class="filter-count" data-library="videos"></span>
+          </div>
           <ul id="video-list" class="video-list">
             <li class="empty">Loading…</li>
           </ul>
@@ -99,6 +100,21 @@
               </button>
               <button type="button" id="music-refresh-btn" class="ghost">Refresh</button>
             </div>
+          </div>
+          <div class="filter-row" data-library="music">
+            <label>
+              <span class="filter-label">Category</span>
+              <select class="filter-category" data-library="music"></select>
+            </label>
+            <label>
+              <span class="filter-label">Sort</span>
+              <select class="filter-sort" data-library="music">
+                <option value="recent">Recently added</option>
+                <option value="plays">Most played</option>
+                <option value="title">Title (A–Z)</option>
+              </select>
+            </label>
+            <span class="filter-count" data-library="music"></span>
           </div>
           <ul id="music-list" class="video-list">
             <li class="empty">Loading…</li>
@@ -134,6 +150,14 @@
             <button type="button" id="ss-stop-btn" class="ghost">Stop</button>
             <button type="button" id="ss-refresh-btn" class="ghost">Refresh images</button>
             <button type="button" id="ss-rotate-btn" class="ghost">Rotate now</button>
+            <button
+              type="button"
+              id="ss-delete-current-btn"
+              class="ghost danger"
+              title="Deletes the image currently being shown on the TV"
+            >
+              Delete current image
+            </button>
           </div>
           <p class="hint">
             The cache auto-rotates every day at 05:00 (keeps a random 25% of
@@ -182,6 +206,20 @@
         aria-labelledby="tabbtn-remote"
         hidden
       >
+        <div class="card">
+          <div class="card-head">
+            <h2>TV</h2>
+            <div class="tv-actions">
+              <button type="button" id="tv-wake-btn">Wake TV</button>
+              <button type="button" id="tv-sleep-btn" class="ghost danger">Sleep TV</button>
+            </div>
+          </div>
+          <p class="hint" id="tv-status">
+            Wake powers the TV on and switches to this input. It also runs
+            automatically when you play a video.
+          </p>
+        </div>
+
         <div class="card remote">
           <div class="remote-header">
             <h2>TV Remote</h2>
@@ -245,6 +283,17 @@
         </div>
       </section>
     </main>
+
+    <div class="modal-backdrop" id="shuffle-modal" hidden aria-hidden="true">
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="shuffle-modal-title">
+        <h2 id="shuffle-modal-title">Shuffle which category?</h2>
+        <p class="hint">Pick a category, or leave it on <em>All</em> to shuffle every track.</p>
+        <ul id="shuffle-modal-options" class="shuffle-options"></ul>
+        <div class="modal-actions">
+          <button type="button" class="ghost" id="shuffle-modal-cancel">Cancel</button>
+        </div>
+      </div>
+    </div>
 
     <nav class="tabbar" role="tablist" aria-label="Sections">
       <button
