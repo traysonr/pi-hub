@@ -57,7 +57,20 @@
     shuffleModal: document.getElementById("shuffle-modal"),
     shuffleModalOptions: document.getElementById("shuffle-modal-options"),
     shuffleModalCancel: document.getElementById("shuffle-modal-cancel"),
+    assignCatBtn: document.getElementById("assign-cat-btn"),
+    catCurrent: document.getElementById("cat-current"),
+    assignCatModal: document.getElementById("assign-cat-modal"),
+    assignCatTarget: document.getElementById("assign-cat-target"),
+    assignCatOptions: document.getElementById("assign-cat-options"),
+    assignCatNewForm: document.getElementById("assign-cat-new-form"),
+    assignCatNewInput: document.getElementById("assign-cat-new-input"),
+    assignCatClear: document.getElementById("assign-cat-clear"),
+    assignCatCancel: document.getElementById("assign-cat-cancel"),
   };
+
+  // The latest /api/status snapshot — the assign-category modal pulls
+  // from this so we don't have to refetch on open.
+  let lastStatus = null;
 
   let activeJobId = null;
   let activeJobAudioOnly = false;
@@ -430,6 +443,8 @@
     const paused = !!(state && state.paused);
     const kind = state && state.kind;
     lastKnownPlaying = playing;
+    lastStatus = state || null;
+    updateAssignCategoryIndicator(state);
 
     els.playerStatus.classList.remove("playing", "paused");
     if (playing && paused) {
@@ -704,6 +719,134 @@
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape" && !els.shuffleModal.hidden) {
         closeShuffleModal();
+      }
+    });
+  }
+
+  // ---- Assign category modal ----------------------------------------------
+
+  function updateAssignCategoryIndicator(state) {
+    if (!els.assignCatBtn) return;
+    const playing = !!(state && state.playing);
+    els.assignCatBtn.disabled = !playing;
+    if (els.catCurrent) {
+      const cat = (state && state.category) || "";
+      els.catCurrent.textContent = playing
+        ? cat
+          ? `currently: ${cat}`
+          : "currently: (uncategorized)"
+        : "";
+    }
+  }
+
+  async function applyCategory(category) {
+    if (!lastStatus || !lastStatus.playing || !lastStatus.filename) {
+      flashRemote("Nothing playing to categorize", "error");
+      return;
+    }
+    const library = lastStatus.library === "music" ? "music" : "videos";
+    const url = `/api/${library}/${encodeURIComponent(lastStatus.filename)}`;
+    try {
+      const data = await api(url, {
+        method: "PATCH",
+        body: JSON.stringify({ category }),
+      });
+      // Optimistic local update so the indicator + modal reflect the
+      // change before the next /api/status tick lands.
+      if (lastStatus) {
+        lastStatus.category = data.entry.category;
+        lastStatus.categories = data.categories;
+      }
+      updateAssignCategoryIndicator(lastStatus);
+      flashRemote(
+        category ? `Category: ${category}` : "Category cleared",
+        "success"
+      );
+      closeAssignCatModal();
+      // Refresh the matching library list so its filter dropdown picks
+      // up any newly-created category and the item moves between bins.
+      if (library === "music") loadMusic(); else loadVideos();
+      // Pull a fresh status so the indicator updates from the server
+      // truth (handy if multiple clients are editing simultaneously).
+      refreshPlayerStatus();
+    } catch (err) {
+      flashRemote(`Update failed: ${err.message}`, "error");
+    }
+  }
+
+  function openAssignCatModal() {
+    if (!els.assignCatModal) return;
+    if (!lastStatus || !lastStatus.playing || !lastStatus.filename) {
+      flashRemote("Nothing playing to categorize", "error");
+      return;
+    }
+
+    if (els.assignCatTarget) {
+      const title = lastStatus.title || lastStatus.filename;
+      const current = lastStatus.category || "(uncategorized)";
+      els.assignCatTarget.textContent = `${title} — currently ${current}`;
+    }
+
+    const categories = (lastStatus.categories || []).slice();
+    const current = lastStatus.category || "";
+    els.assignCatOptions.innerHTML = "";
+    for (const cat of categories) {
+      const li = document.createElement("li");
+      const btn = document.createElement("button");
+      btn.type = "button";
+      const label = cat.name || "(uncategorized)";
+      btn.innerHTML = `<span>${label}</span><span class="opt-count">${cat.count}</span>`;
+      if (cat.name === current) btn.classList.add("selected");
+      btn.addEventListener("click", () => applyCategory(cat.name));
+      li.appendChild(btn);
+      els.assignCatOptions.appendChild(li);
+    }
+    if (els.assignCatNewInput) els.assignCatNewInput.value = "";
+
+    els.assignCatModal.hidden = false;
+    els.assignCatModal.setAttribute("aria-hidden", "false");
+    if (els.assignCatNewInput) {
+      // Focus the new-category input on open so creating one is one tap +
+      // type-and-submit on mobile, while existing category buttons remain
+      // a single tap above.
+      setTimeout(() => els.assignCatNewInput.focus(), 50);
+    }
+  }
+
+  function closeAssignCatModal() {
+    if (!els.assignCatModal) return;
+    els.assignCatModal.hidden = true;
+    els.assignCatModal.setAttribute("aria-hidden", "true");
+  }
+
+  if (els.assignCatBtn) {
+    els.assignCatBtn.addEventListener("click", openAssignCatModal);
+  }
+  if (els.assignCatCancel) {
+    els.assignCatCancel.addEventListener("click", closeAssignCatModal);
+  }
+  if (els.assignCatClear) {
+    els.assignCatClear.addEventListener("click", () => applyCategory(""));
+  }
+  if (els.assignCatNewForm) {
+    els.assignCatNewForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const value = (els.assignCatNewInput && els.assignCatNewInput.value) || "";
+      const trimmed = value.trim();
+      if (!trimmed) {
+        flashRemote("Type a category name first", "error");
+        return;
+      }
+      applyCategory(trimmed);
+    });
+  }
+  if (els.assignCatModal) {
+    els.assignCatModal.addEventListener("click", (event) => {
+      if (event.target === els.assignCatModal) closeAssignCatModal();
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && !els.assignCatModal.hidden) {
+        closeAssignCatModal();
       }
     });
   }

@@ -279,10 +279,44 @@
             </button>
           </div>
 
+          <div class="remote-row category-row" id="category-row">
+            <button type="button" class="remote-btn assign-cat" id="assign-cat-btn">
+              <span class="glyph" aria-hidden="true">&#9873;</span>
+              <span class="lbl">
+                Assign category…
+                <span class="cat-current" id="cat-current"></span>
+              </span>
+            </button>
+          </div>
+
           <p class="hint" id="remote-status" aria-live="polite"></p>
         </div>
       </section>
     </main>
+
+    <div class="modal-backdrop" id="assign-cat-modal" hidden aria-hidden="true">
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="assign-cat-modal-title">
+        <h2 id="assign-cat-modal-title">Assign category</h2>
+        <p class="hint" id="assign-cat-target">No track playing</p>
+        <ul id="assign-cat-options" class="shuffle-options"></ul>
+        <form id="assign-cat-new-form" class="ss-add-form" autocomplete="off">
+          <input
+            type="text"
+            id="assign-cat-new-input"
+            placeholder="New category…"
+            maxlength="128"
+            autocapitalize="off"
+            autocorrect="off"
+            spellcheck="false"
+          />
+          <button type="submit" id="assign-cat-new-btn">Save</button>
+        </form>
+        <div class="modal-actions">
+          <button type="button" class="ghost" id="assign-cat-clear">Clear category</button>
+          <button type="button" class="ghost" id="assign-cat-cancel">Cancel</button>
+        </div>
+      </div>
+    </div>
 
     <div class="modal-backdrop" id="shuffle-modal" hidden aria-hidden="true">
       <div class="modal" role="dialog" aria-modal="true" aria-labelledby="shuffle-modal-title">

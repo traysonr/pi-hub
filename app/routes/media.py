@@ -61,6 +61,23 @@ class PauseRequest(BaseModel):
     paused: bool | None = None
 
 
+class CategoryUpdateRequest(BaseModel):
+    """Body for PATCH ``/api/{videos,music}/{filename}``.
+
+    Empty string is a valid value -- it represents "uncategorized" (the
+    default). The server preserves this verbatim so the same string round-
+    trips through the filter dropdowns. Whitespace is trimmed so users
+    don't accidentally create lookalike "workout " / "workout" buckets.
+    """
+
+    category: str = Field(..., max_length=128)
+
+    @field_validator("category")
+    @classmethod
+    def _trim(cls, value: str) -> str:
+        return value.strip()
+
+
 class ShuffleStartRequest(BaseModel):
     # Optional metadata category to shuffle. ``None`` / missing /
     # empty-string => shuffle the whole library (the default UX).
@@ -108,6 +125,24 @@ def get_videos() -> dict[str, Any]:
     }
 
 
+@router.patch("/videos/{filename:path}")
+def patch_video(
+    payload: CategoryUpdateRequest,
+    filename: str = PathParam(..., min_length=1, max_length=512),
+) -> dict[str, Any]:
+    try:
+        path = catalogue.resolve_video(filename)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    entry = metadata.set_category(path.name, "video", payload.category)
+    return {
+        "status": "ok",
+        "filename": path.name,
+        "entry": entry,
+        "categories": metadata.list_categories("video"),
+    }
+
+
 @router.delete("/videos/{filename:path}")
 def delete_video(
     filename: str = PathParam(..., min_length=1, max_length=512),
@@ -141,6 +176,24 @@ def get_music() -> dict[str, Any]:
     return {
         "tracks": items,
         "count": len(items),
+        "categories": metadata.list_categories("audio"),
+    }
+
+
+@router.patch("/music/{filename:path}")
+def patch_track(
+    payload: CategoryUpdateRequest,
+    filename: str = PathParam(..., min_length=1, max_length=512),
+) -> dict[str, Any]:
+    try:
+        path = catalogue.resolve_music(filename)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    entry = metadata.set_category(path.name, "audio", payload.category)
+    return {
+        "status": "ok",
+        "filename": path.name,
+        "entry": entry,
         "categories": metadata.list_categories("audio"),
     }
 
@@ -256,7 +309,20 @@ def post_stop() -> dict[str, Any]:
 
 @router.get("/status")
 def get_status() -> dict[str, Any]:
-    return player.get_state()
+    state = player.get_state()
+    # Decorate the live status with the metadata fields for the playing
+    # file so the Remote tab can show / edit the category in place.
+    if state.get("playing") and state.get("filename"):
+        kind = "audio" if state.get("kind") == "audio" else "video"
+        try:
+            entry = metadata.get_entry(state["filename"], kind)
+            state["category"] = entry.get("category", "")
+            state["play_count"] = entry.get("play_count", 0)
+            state["categories"] = metadata.list_categories(kind)
+            state["library"] = "music" if kind == "audio" else "videos"
+        except Exception:
+            log.exception("metadata: failed to decorate /api/status")
+    return state
 
 
 def _ensure_playing() -> None:

@@ -1006,4 +1006,43 @@ button.ghost.danger {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
+  flex-wrap: wrap;
+}
+
+#assign-cat-new-form {
+  display: flex;
+  gap: 8px;
+  margin: 4px 0 14px;
+}
+
+#assign-cat-new-form input {
+  flex: 1;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: var(--fs-body);
+}
+
+#assign-cat-new-form input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.assign-cat .cat-current {
+  display: block;
+  font-size: var(--fs-tiny);
+  color: var(--muted);
+  font-weight: 400;
+  margin-top: 2px;
+}
+
+.assign-cat .cat-current:empty {
+  display: none;
+}
+
+.shuffle-options button.selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
 }

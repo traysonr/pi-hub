@@ -126,6 +126,24 @@ def register(filename: str, kind: Kind) -> dict[str, Any]:
         return dict(entry)
 
 
+def set_category(filename: str, kind: Kind, category: str) -> dict[str, Any]:
+    """Set the category for ``filename`` and persist. Auto-registers."""
+
+    path, _media_dir, _exts = _paths(kind)
+    with _lock:
+        data = _load(path)
+        entry = data.get(filename)
+        if entry is None:
+            entry = _default_entry()
+            data[filename] = entry
+        entry["category"] = category
+        _save(path, data)
+        log.info(
+            "metadata: set %s category for %s -> %r", kind, filename, category
+        )
+        return dict(entry)
+
+
 def remove(filename: str, kind: Kind) -> bool:
     """Drop ``filename`` from the catalog. Returns True if removed."""
 
