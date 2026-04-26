@@ -242,6 +242,13 @@ def _build_video_cmd(binary: str) -> tuple[list[str], Path]:
         "--print", "after_move:filepath",
         "-f", fmt,
         "--merge-output-format", "mp4",
+        # Save the YouTube thumbnail next to the video as ``<stem>.jpg``.
+        # The Video tab renders this on each card; mapping is implicit
+        # because both files share a stem (filesystem == catalog). If
+        # thumbnail conversion ever fails (no ffmpeg), yt-dlp keeps the
+        # source webp/png, which catalogue.py also recognises.
+        "--write-thumbnail",
+        "--convert-thumbnails", "jpg",
         "-o", output_template,
     ]
     return cmd, VIDEO_DIR

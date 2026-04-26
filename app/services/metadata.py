@@ -68,6 +68,22 @@ def _default_entry() -> dict[str, Any]:
     return {"category": "", "play_count": 0}
 
 
+def canonicalize_category(value: str) -> str:
+    """Return the canonical form of a category label.
+
+    Categories are stored and displayed with an uppercase first letter
+    so user-supplied "workout" and "Workout" land in the same bucket
+    (otherwise the filter dropdown would split them apart). We only
+    touch the first character — preserving the rest verbatim keeps
+    intentional casing like "HIIT" or "BJJ" intact.
+    """
+
+    trimmed = value.strip()
+    if not trimmed:
+        return ""
+    return trimmed[:1].upper() + trimmed[1:]
+
+
 def _normalize_entry(value: Any) -> dict[str, Any]:
     """Coerce a stored entry into the canonical shape."""
 
@@ -75,7 +91,7 @@ def _normalize_entry(value: Any) -> dict[str, Any]:
     if isinstance(value, dict):
         category = value.get("category", "")
         if isinstance(category, str):
-            entry["category"] = category
+            entry["category"] = canonicalize_category(category)
         play_count = value.get("play_count", 0)
         if isinstance(play_count, bool):
             play_count = int(play_count)
@@ -136,7 +152,10 @@ def set_category(filename: str, kind: Kind, category: str) -> dict[str, Any]:
         if entry is None:
             entry = _default_entry()
             data[filename] = entry
-        entry["category"] = category
+        # Canonicalize on write so the JSON only ever contains the
+        # uppercased-first-letter form. _load() also normalizes, but
+        # rewriting on every write keeps the on-disk file tidy.
+        entry["category"] = canonicalize_category(category)
         _save(path, data)
         log.info(
             "metadata: set %s category for %s -> %r", kind, filename, category
@@ -185,7 +204,17 @@ def sync(kind: Kind) -> tuple[int, int]:
     added = 0
     removed = 0
     with _lock:
+        # _load() already canonicalizes categories in-memory, so just
+        # comparing its output against the raw on-disk text would tell
+        # us if a rewrite is needed. We capture that intent explicitly
+        # via ``canonicalized`` so the rewrite condition below stays
+        # readable.
+        before_text = path.read_text(encoding="utf-8") if path.is_file() else ""
         data = _load(path)
+        canonicalized = (
+            json.dumps(data, indent=2, sort_keys=True) + "\n"
+        ) != before_text
+
         present: set[str] = set()
         if media_dir.is_dir():
             for child in media_dir.iterdir():
@@ -205,7 +234,7 @@ def sync(kind: Kind) -> tuple[int, int]:
                 del data[name]
                 removed += 1
 
-        if added or removed or not path.is_file():
+        if added or removed or canonicalized or not path.is_file():
             _save(path, data)
 
     if added or removed:

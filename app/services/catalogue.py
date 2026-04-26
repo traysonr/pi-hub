@@ -58,12 +58,40 @@ def _display_title(stem: str) -> str:
     return title or stem
 
 
+# Image extensions we recognise as a video thumbnail. yt-dlp is asked to
+# convert thumbnails to jpg, but if ffmpeg can't (or the source had no
+# embedded jpg/png), the original webp/png is left in place. We accept
+# any of these so older downloads still light up once their file lands.
+_THUMBNAIL_EXTENSIONS: tuple[str, ...] = (".jpg", ".jpeg", ".png", ".webp")
+
+
+def _find_thumbnail(video_path: Path) -> Path | None:
+    """Return a sibling thumbnail file for ``video_path``, if any.
+
+    The thumbnail and video share a stem (e.g. ``Title [id] [720p].mp4``
+    pairs with ``Title [id] [720p].jpg``). This implicit mapping means
+    we don't need a separate JSON registry — the filesystem itself is
+    the source of truth, so a renamed/deleted video automatically
+    invalidates its thumbnail without bookkeeping.
+    """
+
+    for ext in _THUMBNAIL_EXTENSIONS:
+        candidate = video_path.with_suffix(ext)
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 @dataclass(frozen=True)
 class MediaEntry:
     filename: str
     title: str
     size_bytes: int
     modified: float
+    # Filename of a sibling thumbnail (e.g. "Title [id] [720p].jpg")
+    # when one exists on disk, else ``None``. The HTTP layer turns this
+    # into a ``thumbnail_url`` for the frontend.
+    thumbnail: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -71,6 +99,7 @@ class MediaEntry:
             "title": self.title,
             "size_bytes": self.size_bytes,
             "modified": self.modified,
+            "thumbnail": self.thumbnail,
         }
 
 
@@ -78,7 +107,12 @@ class MediaEntry:
 VideoEntry = MediaEntry
 
 
-def _list_dir(directory: Path, extensions: frozenset[str]) -> list[MediaEntry]:
+def _list_dir(
+    directory: Path,
+    extensions: frozenset[str],
+    *,
+    with_thumbnails: bool = False,
+) -> list[MediaEntry]:
     """Return every playable file in `directory`, newest first."""
 
     if not directory.exists():
@@ -102,12 +136,18 @@ def _list_dir(directory: Path, extensions: frozenset[str]) -> list[MediaEntry]:
         # offer half-extracted audio for playback (which mpv refuses).
         if (now - stat.st_mtime) < _MIN_IDLE_SECONDS:
             continue
+        thumbnail: str | None = None
+        if with_thumbnails:
+            thumb_path = _find_thumbnail(path)
+            if thumb_path is not None:
+                thumbnail = thumb_path.name
         entries.append(
             MediaEntry(
                 filename=path.name,
                 title=_display_title(path.stem),
                 size_bytes=stat.st_size,
                 modified=stat.st_mtime,
+                thumbnail=thumbnail,
             )
         )
 
@@ -141,13 +181,43 @@ def _resolve_in(directory: Path, filename: str, kind: str) -> Path:
 def list_videos() -> list[MediaEntry]:
     """Return every playable video in the catalogue, newest first."""
 
-    return _list_dir(VIDEO_DIR, VIDEO_EXTENSIONS)
+    return _list_dir(VIDEO_DIR, VIDEO_EXTENSIONS, with_thumbnails=True)
 
 
 def resolve_video(filename: str) -> Path:
     """Resolve `filename` to an absolute path inside the video directory."""
 
     return _resolve_in(VIDEO_DIR, filename, "video")
+
+
+def resolve_video_thumbnail(filename: str) -> Path:
+    """Resolve a sibling thumbnail for ``filename`` inside the video dir.
+
+    Raises ``ValueError`` if the video does not exist or has no thumbnail
+    on disk. The returned path is always inside ``VIDEO_DIR``.
+    """
+
+    video = _resolve_in(VIDEO_DIR, filename, "video")
+    thumb = _find_thumbnail(video)
+    if thumb is None:
+        raise ValueError("No thumbnail for this video")
+    return thumb
+
+
+def thumbnail_siblings(filename: str) -> list[Path]:
+    """Return every thumbnail-shaped sibling of ``filename`` (for cleanup).
+
+    Used by the delete route so removing a video also removes any image
+    files yt-dlp left next to it.
+    """
+
+    video = _resolve_in(VIDEO_DIR, filename, "video")
+    out: list[Path] = []
+    for ext in _THUMBNAIL_EXTENSIONS:
+        candidate = video.with_suffix(ext)
+        if candidate.is_file():
+            out.append(candidate)
+    return out
 
 
 def list_music() -> list[MediaEntry]:

@@ -6,6 +6,7 @@ import logging
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Path as PathParam
+from fastapi.responses import FileResponse
 from pydantic import AliasChoices, BaseModel, Field, field_validator
 
 from app.services import (
@@ -109,7 +110,17 @@ def _merge_metadata(items: list[dict[str, Any]], kind: str) -> list[dict[str, An
         meta = catalog.get(item["filename"]) or {"category": "", "play_count": 0}
         # Order matters: metadata wins over any same-named filesystem
         # attribute, but currently they don't overlap.
-        enriched.append({**item, **meta})
+        merged = {**item, **meta}
+        # Turn the catalogue's bare ``thumbnail`` filename into a URL the
+        # browser can <img src="…"> directly. Audio entries never have one.
+        thumb = merged.get("thumbnail")
+        if kind == "video" and thumb:
+            merged["thumbnail_url"] = (
+                f"/api/videos/{merged['filename']}/thumbnail"
+            )
+        else:
+            merged["thumbnail_url"] = None
+        enriched.append(merged)
     return enriched
 
 
@@ -123,6 +134,32 @@ def get_videos() -> dict[str, Any]:
         "count": len(items),
         "categories": metadata.list_categories("video"),
     }
+
+
+@router.get("/videos/{filename:path}/thumbnail")
+def get_video_thumbnail(
+    filename: str = PathParam(..., min_length=1, max_length=512),
+) -> FileResponse:
+    """Stream the JPG/PNG/WebP thumbnail that yt-dlp saved next to the video.
+
+    Thumbnails are co-located with the video file (same stem), so this
+    handler just resolves the sibling and serves it. Returning 404 when
+    the file is missing lets the frontend fall back to a placeholder
+    without a special "has thumbnail" pre-check.
+    """
+
+    try:
+        path = catalogue.resolve_video_thumbnail(filename)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    # Browsers cache thumbnails for an hour: they're tied 1:1 to the
+    # video file (same stem) and the video itself is immutable, so a
+    # short cache makes scrolling the list snappy without risking a
+    # stale render after a delete + re-download.
+    return FileResponse(
+        path,
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
 
 
 @router.patch("/videos/{filename:path}")
@@ -157,11 +194,25 @@ def delete_video(
     if player.is_playing():
         player.stop()
 
+    # Snapshot any thumbnail siblings before unlinking the video so we
+    # can scrub them too — otherwise resolve_video_thumbnail() would
+    # fail (it requires the video) and the jpg would leak on disk.
+    try:
+        thumbs = catalogue.thumbnail_siblings(path.name)
+    except ValueError:
+        thumbs = []
+
     try:
         path.unlink()
     except OSError as exc:
         log.exception("Failed to delete %s", path)
         raise HTTPException(status_code=500, detail=f"Delete failed: {exc}") from exc
+
+    for thumb in thumbs:
+        try:
+            thumb.unlink()
+        except OSError:
+            log.warning("Could not delete thumbnail %s", thumb, exc_info=True)
 
     metadata.remove(path.name, "video")
     log.info("Deleted %s", path.name)

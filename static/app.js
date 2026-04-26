@@ -110,6 +110,16 @@
     }
   }
 
+  // Categories are stored canonical (uppercase first letter) on the
+  // server, but we still capitalize defensively here so legacy entries
+  // loaded before the migration completed still render nicely. Empty
+  // string means "no category set" — surface it as "(Uncategorized)"
+  // so the user can see and target that bucket from the filter.
+  function fmtCategory(name) {
+    if (!name) return "(Uncategorized)";
+    return name.charAt(0).toUpperCase() + name.slice(1);
+  }
+
   async function api(path, options) {
     const res = await fetch(path, {
       headers: { "Content-Type": "application/json" },
@@ -239,7 +249,7 @@
       // "" is a legitimate stored category (default), but the UI labels
       // it explicitly so users understand it means "no category set".
       opt.value = cat.name;
-      opt.textContent = `${cat.name || "(uncategorized)"} (${cat.count})`;
+      opt.textContent = `${fmtCategory(cat.name)} (${cat.count})`;
       select.appendChild(opt);
     }
 
@@ -320,9 +330,9 @@
     for (const item of items) {
       const li = document.createElement("li");
       li.className = "video";
-
-      const meta = document.createElement("div");
-      meta.className = "meta";
+      // Cards with a thumbnail get a 2-column grid (text | thumb); the
+      // class flips the layout without us having to branch in CSS.
+      if (item.thumbnail_url) li.classList.add("has-thumb");
 
       const title = document.createElement("span");
       title.className = "title";
@@ -331,19 +341,19 @@
 
       const sub = document.createElement("span");
       sub.className = "sub";
+      // Card sub-line intentionally only carries category + play count.
+      // Size and date are still on each item (the API returns them and
+      // the Recently-added sort uses ``modified``) but we don't show
+      // them — the title and a thumbnail say more about a video at a
+      // glance than a date stamp does.
       const parts = [];
-      if (item.category) parts.push(item.category);
+      if (item.category) parts.push(fmtCategory(item.category));
       if (Number.isFinite(item.play_count) && item.play_count > 0) {
         parts.push(
           `${item.play_count} play${item.play_count === 1 ? "" : "s"}`
         );
       }
-      if (item.size_bytes) parts.push(fmtSize(item.size_bytes));
-      if (item.modified) parts.push(fmtDate(item.modified));
       sub.textContent = parts.join(" · ");
-
-      meta.appendChild(title);
-      meta.appendChild(sub);
 
       const actions = document.createElement("div");
       actions.className = "actions";
@@ -367,8 +377,32 @@
       actions.appendChild(playBtn);
       actions.appendChild(deleteBtn);
 
-      li.appendChild(meta);
+      // Layout (per row, top to bottom): title, sub-line, action row.
+      // The thumbnail (when present) sits in the right column from the
+      // sub-line down, so the title stays on its own row and can use
+      // the full card width before being truncated.
+      li.appendChild(title);
+      li.appendChild(sub);
       li.appendChild(actions);
+
+      if (item.thumbnail_url) {
+        const thumb = document.createElement("img");
+        thumb.className = "thumb";
+        thumb.loading = "lazy";
+        thumb.decoding = "async";
+        thumb.alt = "";
+        thumb.src = item.thumbnail_url;
+        // Hide the <img> if the thumbnail 404s (e.g. backfill removed
+        // it). The grid column collapses automatically because the
+        // ``has-thumb`` class only adds the column when an <img> is
+        // there to fill it; we drop the class on error.
+        thumb.addEventListener("error", () => {
+          thumb.remove();
+          li.classList.remove("has-thumb");
+        });
+        li.appendChild(thumb);
+      }
+
       listEl.appendChild(li);
     }
   }
@@ -638,7 +672,7 @@
       });
       setShuffleUi(!!data.active);
       const label = category
-        ? `Shuffling ${category}…`
+        ? `Shuffling ${fmtCategory(category)}…`
         : data.current || "Shuffling…";
       setPlayerStatus({
         playing: true,
@@ -679,8 +713,7 @@
         const li = document.createElement("li");
         const btn = document.createElement("button");
         btn.type = "button";
-        const label = cat.name || "(uncategorized)";
-        btn.innerHTML = `<span>${label}</span><span class="opt-count">${cat.count}</span>`;
+        btn.innerHTML = `<span>${fmtCategory(cat.name)}</span><span class="opt-count">${cat.count}</span>`;
         btn.addEventListener("click", () =>
           startShuffleWithCategory(cat.name)
         );
@@ -732,9 +765,7 @@
     if (els.catCurrent) {
       const cat = (state && state.category) || "";
       els.catCurrent.textContent = playing
-        ? cat
-          ? `currently: ${cat}`
-          : "currently: (uncategorized)"
+        ? `currently: ${fmtCategory(cat)}`
         : "";
     }
   }
@@ -759,7 +790,7 @@
       }
       updateAssignCategoryIndicator(lastStatus);
       flashRemote(
-        category ? `Category: ${category}` : "Category cleared",
+        category ? `Category: ${fmtCategory(category)}` : "Category cleared",
         "success"
       );
       closeAssignCatModal();
@@ -783,8 +814,7 @@
 
     if (els.assignCatTarget) {
       const title = lastStatus.title || lastStatus.filename;
-      const current = lastStatus.category || "(uncategorized)";
-      els.assignCatTarget.textContent = `${title} — currently ${current}`;
+      els.assignCatTarget.textContent = `${title} — currently ${fmtCategory(lastStatus.category || "")}`;
     }
 
     const categories = (lastStatus.categories || []).slice();
@@ -794,8 +824,7 @@
       const li = document.createElement("li");
       const btn = document.createElement("button");
       btn.type = "button";
-      const label = cat.name || "(uncategorized)";
-      btn.innerHTML = `<span>${label}</span><span class="opt-count">${cat.count}</span>`;
+      btn.innerHTML = `<span>${fmtCategory(cat.name)}</span><span class="opt-count">${cat.count}</span>`;
       if (cat.name === current) btn.classList.add("selected");
       btn.addEventListener("click", () => applyCategory(cat.name));
       li.appendChild(btn);
