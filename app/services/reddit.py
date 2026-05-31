@@ -1,20 +1,23 @@
-"""Fetch image URLs from public subreddit JSON endpoints.
+"""Fetch image URLs from subreddits via old.reddit.com HTML scraping.
 
-This module is intentionally dependency-free: it uses `urllib` from the
-stdlib so we don't have to add `requests` to requirements. Reddit's JSON
-endpoints (`/r/<sub>/top.json?...`) require nothing more than a polite
-User-Agent header.
+Reddit's unauthenticated JSON endpoints (``/r/<sub>/top.json``) return
+HTTP 403 on some networks/IPs.  The old.reddit.com HTML interface serves
+the same top-post listings without requiring authentication and is
+accessible even when the JSON API is blocked.
 
-Images are filtered down to direct image URLs (i.e. files that mpv can
-actually display), and downloaded to a per-theme cache directory on disk
-so the screensaver can keep running without re-hitting Reddit on every
-slide and survives short outages.
+We extract direct image URLs from the ``data-url`` attribute that
+old.reddit embeds in each post's container ``<div>``.  Everything
+downstream (download_image, refresh_theme, list_cached_images) is
+unchanged — only fetch_listing switches from JSON parsing to HTML
+scraping.
+
+The module remains intentionally dependency-free (stdlib only).
 """
 
 from __future__ import annotations
 
 import hashlib
-import json
+import html as html_lib
 import logging
 import re
 import time
@@ -28,9 +31,34 @@ from app.config import SCREENSAVER_CACHE_DIR
 
 log = logging.getLogger(__name__)
 
-# Reddit asks for a descriptive User-Agent that identifies the app and a
-# contact handle. They actively rate-limit / block the default Python UA.
-_USER_AGENT = "pi-hub/0.1 (https://github.com/traysonr/pi-hub)"
+# old.reddit.com rejects obviously bot-like requests.  A realistic
+# browser UA + Accept headers is sufficient to get through.
+#
+# Two header sets are needed:
+#  - _PAGE_HEADERS  for fetching old.reddit.com HTML listing pages
+#    (Accept: text/html, which is what a browser sends for a web page)
+#  - _IMAGE_HEADERS for downloading images from i.redd.it
+#    (Accept: image/*, because i.redd.it does content-negotiation and
+#    returns its HTML UI instead of the JPEG when the client advertises
+#    text/html as a preferred type)
+_UA = "Mozilla/5.0 (X11; Linux aarch64; rv:109.0) Gecko/20100101 Firefox/115.0"
+
+_PAGE_HEADERS = {
+    "User-Agent": _UA,
+    "Accept": (
+        "text/html,application/xhtml+xml,application/xml;"
+        "q=0.9,image/avif,image/webp,*/*;q=0.8"
+    ),
+    "Accept-Language": "en-US,en;q=0.5",
+    "Connection": "keep-alive",
+}
+
+_IMAGE_HEADERS = {
+    "User-Agent": _UA,
+    "Accept": "image/avif,image/webp,image/png,image/jpeg,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.5",
+    "Connection": "keep-alive",
+}
 
 _REQUEST_TIMEOUT = 15.0
 
@@ -91,7 +119,11 @@ def fetch_listing(
     timeframe: str = "week",
     limit: int = 50,
 ) -> list[RedditImage]:
-    """Pull the top posts from a subreddit and return only image posts.
+    """Scrape old.reddit.com for image posts in ``subreddit``.
+
+    Each post on old.reddit is rendered as a ``<div>`` with a
+    ``data-url`` attribute containing the post's link URL.  We collect
+    the ones whose URL is a direct image (.jpg / .jpeg / .png).
 
     Returns an empty list (with a logged warning) on any network or
     parsing error — callers should treat fetch failures as "no new
@@ -103,11 +135,12 @@ def fetch_listing(
         log.warning("Refusing to fetch malformed subreddit name: %r", subreddit)
         return []
 
-    qs = urllib.parse.urlencode({"t": timeframe, "limit": str(limit), "raw_json": "1"})
-    url = f"https://www.reddit.com/r/{safe_sub}/{sort}.json?{qs}"
+    # old.reddit honours the same ?t= and ?limit= parameters as the
+    # JSON API, capped at 100 per page.
+    qs = urllib.parse.urlencode({"t": timeframe, "limit": str(min(limit, 100))})
+    url = f"https://old.reddit.com/r/{safe_sub}/{sort}/?{qs}"
 
-    req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
-
+    req = urllib.request.Request(url, headers=_PAGE_HEADERS)
     try:
         with urllib.request.urlopen(req, timeout=_REQUEST_TIMEOUT) as resp:
             raw = resp.read()
@@ -119,32 +152,53 @@ def fetch_listing(
         return []
 
     try:
-        data = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        log.warning("Reddit %s returned invalid JSON: %s", safe_sub, exc)
+        html_text = raw.decode("utf-8", errors="replace")
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Reddit %s: failed to decode response: %s", safe_sub, exc)
         return []
 
-    children = (data.get("data") or {}).get("children") or []
     images: list[RedditImage] = []
-    for child in children:
-        post = child.get("data") or {}
-        if post.get("over_18"):
-            # Most "EarthPorn"-style subs are SFW despite the name, but
-            # respect the flag if Reddit thinks otherwise.
+
+    # old.reddit renders each post as a <div> whose opening tag contains
+    # both data-fullname="t3_<id>" and data-url="<link>".  We iterate
+    # over all div opening tags, keep only post containers (class
+    # includes both "thing" and "link"), and extract the two attributes.
+    for tag_m in re.finditer(r"<div\b([^>]+)>", html_text):
+        attrs = tag_m.group(1)
+
+        cls_m = re.search(r'\bclass="([^"]*)"', attrs)
+        if not cls_m:
             continue
-        url = post.get("url_overridden_by_dest") or post.get("url") or ""
-        if not _is_direct_image_url(url):
+        classes = cls_m.group(1)
+        if "thing" not in classes or "link" not in classes:
             continue
+
+        fn_m = re.search(r'\bdata-fullname="t3_([A-Za-z0-9]+)"', attrs)
+        if not fn_m:
+            continue
+        post_id = fn_m.group(1)
+
+        url_m = re.search(r'\bdata-url="([^"]+)"', attrs)
+        if not url_m:
+            continue
+        img_url = html_lib.unescape(url_m.group(1))
+
+        if not _is_direct_image_url(img_url):
+            continue
+
         images.append(
             RedditImage(
                 subreddit=safe_sub,
-                post_id=str(post.get("id") or ""),
-                title=str(post.get("title") or "")[:200],
-                url=url,
+                post_id=post_id,
+                title="",
+                url=img_url,
             )
         )
 
-    log.info("Reddit %s: found %d image posts", safe_sub, len(images))
+        if len(images) >= limit:
+            break
+
+    log.info("Reddit %s: found %d image posts (HTML scrape)", safe_sub, len(images))
     return images
 
 
@@ -157,17 +211,25 @@ def download_image(image: RedditImage, *, dest_dir: Path | None = None) -> Path 
     if target.exists() and target.stat().st_size > 0:
         return target
 
-    req = urllib.request.Request(image.url, headers={"User-Agent": _USER_AGENT})
+    req = urllib.request.Request(image.url, headers=_IMAGE_HEADERS)
     tmp = target.with_suffix(target.suffix + ".part")
     try:
-        with urllib.request.urlopen(req, timeout=_REQUEST_TIMEOUT) as resp, open(
-            tmp, "wb"
-        ) as fh:
-            while True:
-                chunk = resp.read(64 * 1024)
-                if not chunk:
-                    break
-                fh.write(chunk)
+        with urllib.request.urlopen(req, timeout=_REQUEST_TIMEOUT) as resp:
+            # Guard against CDNs that do content-negotiation and return an
+            # HTML page instead of the image when the Accept header is wrong.
+            ct = (resp.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+            if ct and not ct.startswith("image/"):
+                log.warning(
+                    "Image download skipped (%s): server returned Content-Type=%s",
+                    image.url, ct,
+                )
+                return None
+            with open(tmp, "wb") as fh:
+                while True:
+                    chunk = resp.read(64 * 1024)
+                    if not chunk:
+                        break
+                    fh.write(chunk)
         tmp.replace(target)
         return target
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
@@ -189,10 +251,50 @@ def refresh_theme(
 
     Returns (downloaded_now, total_in_cache). Designed to be cheap on
     repeat calls — already-cached images are skipped instantly.
+
+    If the requested ``timeframe`` returns no image posts (e.g. a small
+    or quiet subreddit with nothing in the past week), we widen the
+    search progressively (week -> month -> year -> all) so the user
+    still gets *something* to look at instead of a permanently empty
+    cache.
     """
 
     started = time.time()
-    listing = fetch_listing(subreddit, timeframe=timeframe, limit=max(max_images * 2, 50))
+
+    # Build the fallback chain starting from the requested timeframe.
+    # Reddit accepts hour/day/week/month/year/all; we only widen, never
+    # narrow, since the caller's choice is the *minimum* freshness.
+    _WIDENING = ["hour", "day", "week", "month", "year", "all"]
+    try:
+        start_idx = _WIDENING.index(timeframe)
+    except ValueError:
+        start_idx = _WIDENING.index("week")
+    timeframes = _WIDENING[start_idx:]
+
+    # Keep widening until we have a healthy listing. Some quiet subs
+    # have only a handful of posts in the past week/month even though
+    # t=year or t=all has plenty -- stopping at the first non-empty
+    # timeframe would leave us with e.g. 2 images forever. We accept
+    # whatever the widest timeframe returns as the floor.
+    listing: list[RedditImage] = []
+    for tf in timeframes:
+        candidate = fetch_listing(subreddit, timeframe=tf, limit=max(max_images * 2, 50))
+        if len(candidate) > len(listing):
+            listing = candidate
+        if len(listing) >= max_images:
+            if tf != timeframe:
+                log.info(
+                    "Theme %s: widened t=%s -> t=%s to reach %d images",
+                    subreddit, timeframe, tf, len(listing),
+                )
+            break
+    else:
+        if listing and timeframes[0] != timeframes[-1]:
+            log.info(
+                "Theme %s: only %d images available even at t=%s",
+                subreddit, len(listing), timeframes[-1],
+            )
+
     cache_dir = _theme_cache_dir(subreddit)
     downloaded = 0
     for image in listing[:max_images]:

@@ -1,0 +1,16 @@
+[Unit]
+Description=Pi Hub Wi-Fi onboarding (tty1)
+After=NetworkManager.service
+Wants=NetworkManager.service
+Before=pi-hub.service
+ConditionPathExists=/sys/class/net/wlan0
+
+[Service]
+Type=oneshot
+Environment=TERM=linux
+ExecStart=/usr/bin/openvt -s -c 1 -f -- /usr/local/sbin/pi-hub-wifi-onboard
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target
+

@@ -1,0 +1,152 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+IFACE="${PI_HUB_WIFI_IFACE:-wlan0}"
+PING_HOST="${PI_HUB_WIFI_PING_HOST:-1.1.1.1}"
+CONNECT_TIMEOUT_SECONDS="${PI_HUB_WIFI_CONNECT_TIMEOUT_SECONDS:-25}"
+FORCE=0
+
+if [[ "${1:-}" == "--force" ]]; then
+  FORCE=1
+fi
+
+have_cmd() { command -v "$1" >/dev/null 2>&1; }
+
+export TERM="${TERM:-linux}"
+
+if ! have_cmd nmcli; then
+  echo "Error: nmcli not found. NetworkManager is required."
+  exit 1
+fi
+
+if ! have_cmd whiptail; then
+  echo "Error: whiptail not found (package: whiptail)."
+  exit 1
+fi
+
+if [[ ! -d "/sys/class/net/${IFACE}" ]]; then
+  echo "Wi-Fi interface ${IFACE} not found."
+  exit 0
+fi
+
+is_connected() {
+  local state
+  state="$(nmcli -t -f STATE general 2>/dev/null | head -n1 || true)"
+  [[ "$state" == "connected" ]]
+}
+
+has_internet() {
+  ping -c 1 -W 1 "$PING_HOST" >/dev/null 2>&1
+}
+
+if is_connected && has_internet; then
+  if [[ "$FORCE" -eq 0 ]]; then
+    exit 0
+  fi
+fi
+
+title="Pi Hub Wi-Fi setup"
+
+nmcli radio wifi on >/dev/null 2>&1 || true
+nmcli dev set "$IFACE" managed yes >/dev/null 2>&1 || true
+
+whiptail --title "$title" --msgbox \
+"This Pi isn't online yet.\n\nUse arrow keys + Enter to pick your Wi‑Fi.\nThen type the password.\n\nWhen it connects, Pi Hub will continue booting normally." \
+12 72
+
+while true; do
+  mapfile -t lines < <(nmcli -t -f SSID,SIGNAL,SECURITY dev wifi list --rescan yes ifname "$IFACE" 2>/dev/null || true)
+
+  options=()
+  seen=""
+  for line in "${lines[@]}"; do
+    ssid="${line%%:*}"
+    rest="${line#*:}"
+    signal="${rest%%:*}"
+    security="${rest#*:}"
+
+    [[ -z "$ssid" ]] && continue
+    case " $seen " in
+      *" $ssid "*) continue ;;
+    esac
+    seen="$seen $ssid"
+
+    sec_label="$security"
+    [[ -z "$sec_label" || "$sec_label" == "--" ]] && sec_label="open"
+
+    options+=("$ssid" "signal ${signal}% • ${sec_label}")
+  done
+
+  options+=("__RESCAN__" "Rescan networks")
+  options+=("__REBOOT__" "Reboot (give up for now)")
+
+  choice="$(
+    whiptail --title "$title" --menu "Select Wi‑Fi network:" 20 78 12 \
+      "${options[@]}" \
+      3>&1 1>&2 2>&3
+  )" || continue
+
+  if [[ "$choice" == "__RESCAN__" ]]; then
+    continue
+  fi
+  if [[ "$choice" == "__REBOOT__" ]]; then
+    whiptail --title "$title" --yesno "Reboot now?" 8 40 && reboot || true
+    continue
+  fi
+
+  ssid="$choice"
+
+  security="$(
+    nmcli -t -f SSID,SECURITY dev wifi list --rescan no ifname "$IFACE" 2>/dev/null \
+      | awk -F: -v s="$ssid" '$1==s {print $2; exit}'
+  )"
+
+  pass=""
+  if [[ -n "${security:-}" && "${security:-}" != "--" ]]; then
+    pass="$(
+      whiptail --title "$title" --passwordbox "Password for: $ssid" 10 70 \
+        3>&1 1>&2 2>&3
+    )" || continue
+  fi
+
+  # Disconnect stale state and try connect. If the SSID is open, omit password.
+  nmcli dev disconnect "$IFACE" >/dev/null 2>&1 || true
+
+  set +e
+  if [[ -z "$pass" ]]; then
+    nmcli dev wifi connect "$ssid" ifname "$IFACE" name "pi-hub-${ssid}" >/tmp/pi-hub-wifi-onboard.log 2>&1
+    rc=$?
+  else
+    nmcli dev wifi connect "$ssid" password "$pass" ifname "$IFACE" name "pi-hub-${ssid}" >/tmp/pi-hub-wifi-onboard.log 2>&1
+    rc=$?
+  fi
+  set -e
+
+  if [[ $rc -ne 0 ]]; then
+    tail="$(tail -n 6 /tmp/pi-hub-wifi-onboard.log 2>/dev/null || true)"
+    whiptail --title "$title" --msgbox \
+"Connection failed.\n\n$tail" \
+14 78
+    continue
+  fi
+
+  # Wait for IP + quick ping. (Network may connect but internet may still be captive.)
+  deadline=$(( $(date +%s) + CONNECT_TIMEOUT_SECONDS ))
+  while (( $(date +%s) < deadline )); do
+    if is_connected; then
+      if has_internet; then
+        nmcli connection modify "pi-hub-${ssid}" connection.autoconnect yes >/dev/null 2>&1 || true
+        whiptail --title "$title" --msgbox \
+"Connected to:\n  $ssid\n\nSetup complete. Continuing boot…" \
+10 64
+        exit 0
+      fi
+    fi
+    sleep 1
+  done
+
+  whiptail --title "$title" --msgbox \
+"Connected to Wi‑Fi, but internet check didn't pass yet.\n\nIf this network uses a captive portal, you may need to log in from a phone/laptop.\n\nYou can also pick a different network." \
+14 78
+done
+
