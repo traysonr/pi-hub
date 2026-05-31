@@ -158,11 +158,15 @@ YouTube shows, then export a new `cookies.txt` and replace the file on the Pi.
 - `GET /api/downloads` — List recent download jobs.
 - `GET /api/downloads/{id}` — Status of a single download job.
 - `POST /api/play` — Body: `{ "filename": "video.mp4", "library": "videos" }`. Set `"library": "music"` to play an audio track headlessly over HDMI/ALSA without disturbing the slideshow on screen.
+- `POST /api/play` — Body: `{ "filename": "video.mp4", "library": "videos", "background": true }` plays a video in background mode: the TV output is muted, the slideshow is replaced while the clip runs, and music shuffle keeps going.
 - `POST /api/stop` — Stops any current playback.
+- `POST /api/stop/bg_video` — Stops only the background video, leaving audio/shuffle alone.
 - `GET /api/status` — Whether something is currently playing.
 - `POST /api/control/pause` — Toggle (or set) pause for the current video.
 - `POST /api/control/seek` — Body: `{ "seconds": 30 }`. Relative seek.
 - `POST /api/control/volume` — Body: `{ "delta": 10 }`. Adjust mpv volume.
+- `POST /api/bg_video/control/pause` — Toggle (or set) pause for the current background video.
+- `POST /api/bg_video/control/seek` — Body: `{ "seconds": 30 }`. Relative seek for the background video only.
 - `GET /api/music/shuffle` — Shuffle state (`active`, `current`).
 - `POST /api/music/shuffle/start` — Start continuous shuffle (plays a random track immediately).
 - `POST /api/music/shuffle/stop` — Stop shuffle (also stops audio playback).
@@ -260,6 +264,10 @@ Behavior:
   flashes through. When the video ends (manually or naturally), the TV
   returns immediately to whichever idle mode is configured (slideshow
   if enabled, otherwise yellow).
+- **Background video mode.** Pressing **BG Play** on a video card starts
+  a muted video on the TV while music shuffle continues normally. When a
+  background video is active, the Remote tab shows a second, simpler
+  card with just skip, play/pause, and stop controls for that video.
 
 Themes live in `config/screensaver-themes.json` (gitignored; an example
 file is committed alongside it). The easiest way to manage them is from

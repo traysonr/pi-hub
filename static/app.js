@@ -59,6 +59,13 @@
     shuffleModalCancel: document.getElementById("shuffle-modal-cancel"),
     assignCatBtn: document.getElementById("assign-cat-btn"),
     catCurrent: document.getElementById("cat-current"),
+    bgVideoRemote: document.getElementById("bg-video-remote"),
+    bgVideoNowPlaying: document.getElementById("bg-video-now-playing"),
+    bgPauseBtn: document.getElementById("bg-pause-btn"),
+    bgPauseGlyph: document.getElementById("bg-pause-glyph"),
+    bgPauseLabel: document.getElementById("bg-pause-label"),
+    bgStopBtn: document.getElementById("bg-stop-btn"),
+    bgRemoteStatus: document.getElementById("bg-remote-status"),
     assignCatModal: document.getElementById("assign-cat-modal"),
     assignCatTarget: document.getElementById("assign-cat-target"),
     assignCatOptions: document.getElementById("assign-cat-options"),
@@ -366,6 +373,21 @@
         playMedia(kind, item.filename, item.title || item.filename, playBtn)
       );
 
+      actions.appendChild(playBtn);
+
+      // BG Play is only available for videos (not music tracks).
+      if (kind === "videos") {
+        const bgPlayBtn = document.createElement("button");
+        bgPlayBtn.type = "button";
+        bgPlayBtn.className = "bg-play-btn";
+        bgPlayBtn.textContent = "BG Play";
+        bgPlayBtn.title = "Play muted as background video — music keeps running";
+        bgPlayBtn.addEventListener("click", () =>
+          playBgVideo(item.filename, item.title || item.filename, bgPlayBtn)
+        );
+        actions.appendChild(bgPlayBtn);
+      }
+
       const deleteBtn = document.createElement("button");
       deleteBtn.type = "button";
       deleteBtn.className = "ghost danger delete-btn";
@@ -374,7 +396,6 @@
         deleteMedia(kind, item.filename, item.title || item.filename, deleteBtn)
       );
 
-      actions.appendChild(playBtn);
       actions.appendChild(deleteBtn);
 
       // Layout (per row, top to bottom): title, sub-line, action row.
@@ -472,10 +493,39 @@
     }
   }
 
+  async function playBgVideo(filename, label, btn) {
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "Starting…";
+    }
+    try {
+      await api("/api/play", {
+        method: "POST",
+        body: JSON.stringify({
+          filename,
+          library: "videos",
+          background: true,
+        }),
+      });
+      // Stay on the current tab — BG Play is designed to run alongside
+      // whatever the user is doing. The remote badge will update on the
+      // next status poll, and the Stop BG Video button will appear there.
+      schedulePolling();
+    } catch (err) {
+      setStatus(els.downloadStatus, `BG Play failed: ${err.message}`, "error");
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = "BG Play";
+      }
+    }
+  }
+
   function setPlayerStatus(state) {
     const playing = !!(state && state.playing);
     const paused = !!(state && state.paused);
     const kind = state && state.kind;
+    const bgVideoActive = !!(state && state.bg_video_active);
     lastKnownPlaying = playing;
     lastStatus = state || null;
     updateAssignCategoryIndicator(state);
@@ -486,7 +536,13 @@
       els.playerStatus.textContent = "paused";
     } else if (playing) {
       els.playerStatus.classList.add("playing");
-      els.playerStatus.textContent = kind === "audio" ? "playing audio" : "playing";
+      if (kind === "audio" && bgVideoActive) {
+        els.playerStatus.textContent = "playing audio + bg video";
+      } else if (kind === "audio") {
+        els.playerStatus.textContent = "playing audio";
+      } else {
+        els.playerStatus.textContent = "playing";
+      }
     } else {
       els.playerStatus.textContent = "idle";
     }
@@ -513,7 +569,29 @@
     }
 
     setRemoteEnabled(playing);
-    els.tabBtns.remote.classList.toggle("has-badge", playing);
+
+    // BG video remote card — visible only while a bg video is playing.
+    if (els.bgVideoRemote) {
+      els.bgVideoRemote.hidden = !bgVideoActive;
+      for (const btn of els.bgVideoRemote.querySelectorAll(".remote-btn")) {
+        btn.disabled = !bgVideoActive;
+      }
+      if (bgVideoActive) {
+        if (els.bgVideoNowPlaying) {
+          els.bgVideoNowPlaying.textContent =
+            (state && (state.bg_video_title || state.bg_video_filename)) || "Background video";
+        }
+        const bgPaused = !!(state && state.bg_video_paused);
+        if (els.bgPauseGlyph) {
+          els.bgPauseGlyph.innerHTML = bgPaused ? "&#9654;" : "&#10074;&#10074;";
+        }
+        if (els.bgPauseLabel) {
+          els.bgPauseLabel.textContent = bgPaused ? "Play" : "Pause";
+        }
+      }
+    }
+
+    els.tabBtns.remote.classList.toggle("has-badge", playing || bgVideoActive);
 
     if (state && typeof state.shuffle_active === "boolean") {
       setShuffleUi(state.shuffle_active);
@@ -539,8 +617,11 @@
   }
 
   function setRemoteEnabled(enabled) {
-    const buttons = document.querySelectorAll(".remote-btn");
-    for (const btn of buttons) {
+    // Only scope to the primary remote card — the BG video card manages
+    // its own button states independently in setPlayerStatus.
+    const primary = document.getElementById("primary-remote");
+    const scope = primary || document;
+    for (const btn of scope.querySelectorAll(".remote-btn")) {
       btn.disabled = !enabled;
     }
   }
@@ -660,6 +741,75 @@
       els.stopBtnRemote.disabled = !lastKnownPlaying ? true : false;
     }
   });
+
+  // ── BG Video Remote Card ────────────────────────────────────────────────
+
+  function flashBgRemote(msg, kind = "info") {
+    if (!els.bgRemoteStatus) return;
+    els.bgRemoteStatus.textContent = msg;
+    els.bgRemoteStatus.className = `hint ${kind}`;
+    clearTimeout(flashBgRemote._timer);
+    flashBgRemote._timer = setTimeout(() => {
+      if (els.bgRemoteStatus) els.bgRemoteStatus.textContent = "";
+    }, 3000);
+  }
+
+  // Seek buttons — driven by data-bg-seek attribute.
+  if (els.bgVideoRemote) {
+    for (const btn of els.bgVideoRemote.querySelectorAll("[data-bg-seek]")) {
+      btn.addEventListener("click", async () => {
+        const seconds = Number(btn.dataset.bgSeek);
+        btn.disabled = true;
+        try {
+          await api("/api/bg_video/control/seek", {
+            method: "POST",
+            body: JSON.stringify({ seconds }),
+          });
+          const label = seconds > 0 ? `+${seconds}s` : `${seconds}s`;
+          flashBgRemote(`Seeked ${label}`, "success");
+        } catch (err) {
+          flashBgRemote(`Seek failed: ${err.message}`, "error");
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    }
+
+    if (els.bgPauseBtn) {
+      els.bgPauseBtn.addEventListener("click", async () => {
+        els.bgPauseBtn.disabled = true;
+        try {
+          const data = await api("/api/bg_video/control/pause", { method: "POST" });
+          const paused = !!(data && data.paused);
+          if (els.bgPauseGlyph) {
+            els.bgPauseGlyph.innerHTML = paused ? "&#9654;" : "&#10074;&#10074;";
+          }
+          if (els.bgPauseLabel) {
+            els.bgPauseLabel.textContent = paused ? "Play" : "Pause";
+          }
+          flashBgRemote(paused ? "Paused" : "Playing", "success");
+        } catch (err) {
+          flashBgRemote(`Failed: ${err.message}`, "error");
+        } finally {
+          els.bgPauseBtn.disabled = false;
+        }
+      });
+    }
+
+    if (els.bgStopBtn) {
+      els.bgStopBtn.addEventListener("click", async () => {
+        els.bgStopBtn.disabled = true;
+        try {
+          await api("/api/stop/bg_video", { method: "POST" });
+          flashBgRemote("BG video stopped", "success");
+          refreshPlayerStatus();
+        } catch (err) {
+          flashBgRemote(`Stop failed: ${err.message}`, "error");
+          els.bgStopBtn.disabled = false;
+        }
+      });
+    }
+  }
 
   async function startShuffleWithCategory(category) {
     closeShuffleModal();

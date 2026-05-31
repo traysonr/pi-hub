@@ -474,10 +474,29 @@ input[type="text"]:focus {
 }
 
 .video-list .play-btn,
+.video-list .bg-play-btn,
 .video-list .delete-btn {
   padding: 8px 14px;
   font-size: var(--fs-small);
   min-height: 36px;
+}
+
+.video-list .bg-play-btn {
+  background: var(--purple-soft);
+  color: var(--purple);
+  border: 1px solid rgba(91, 61, 245, 0.25);
+  border-radius: var(--radius);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.video-list .bg-play-btn:hover:not(:disabled) {
+  background: #d4cbff;
+}
+
+.video-list .bg-play-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .video-list .delete-btn {
@@ -678,6 +697,39 @@ input[type="text"]:focus {
 
 .remote-btn.assign-cat .lbl {
   color: var(--purple);
+}
+
+/* ── BG Video Remote Card ─────────────────────────────────────────────── */
+
+.bg-video-remote {
+  border-top: 3px solid var(--purple);
+  margin-top: 12px;
+}
+
+.bg-video-remote .remote-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding-bottom: 4px;
+}
+
+.bg-video-remote h2 {
+  color: var(--purple);
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin: 0;
+}
+
+.bg-video-remote .now-playing {
+  font-size: 0.78rem;
+  color: var(--text-muted, #888);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 /* --- Screensaver --- */

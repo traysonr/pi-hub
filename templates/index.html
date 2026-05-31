@@ -220,7 +220,7 @@
           </p>
         </div>
 
-        <div class="card remote">
+        <div class="card remote" id="primary-remote">
           <div class="remote-header">
             <h2>TV Remote</h2>
             <div class="now-playing" id="now-playing">Nothing playing</div>
@@ -290,6 +290,45 @@
           </div>
 
           <p class="hint" id="remote-status" aria-live="polite"></p>
+        </div>
+
+        <div class="card remote bg-video-remote" id="bg-video-remote" hidden>
+          <div class="remote-header">
+            <h2>BG Video</h2>
+            <div class="now-playing" id="bg-video-now-playing"></div>
+          </div>
+
+          <div class="remote-grid">
+            <button type="button" class="remote-btn skip" data-bg-seek="-60" aria-label="Back 1 minute">
+              <span class="glyph" aria-hidden="true">&laquo;</span>
+              <span class="lbl">1m</span>
+            </button>
+            <button type="button" class="remote-btn skip" data-bg-seek="-15" aria-label="Back 15 seconds">
+              <span class="glyph" aria-hidden="true">&lsaquo;</span>
+              <span class="lbl">15s</span>
+            </button>
+            <button type="button" class="remote-btn primary" id="bg-pause-btn" aria-label="Pause or play background video">
+              <span class="glyph" id="bg-pause-glyph" aria-hidden="true">&#10074;&#10074;</span>
+              <span class="lbl" id="bg-pause-label">Pause</span>
+            </button>
+            <button type="button" class="remote-btn skip" data-bg-seek="15" aria-label="Forward 15 seconds">
+              <span class="glyph" aria-hidden="true">&rsaquo;</span>
+              <span class="lbl">15s</span>
+            </button>
+            <button type="button" class="remote-btn skip" data-bg-seek="60" aria-label="Forward 1 minute">
+              <span class="glyph" aria-hidden="true">&raquo;</span>
+              <span class="lbl">1m</span>
+            </button>
+          </div>
+
+          <div class="remote-row">
+            <button type="button" class="remote-btn stop" id="bg-stop-btn">
+              <span class="glyph" aria-hidden="true">&#9632;</span>
+              <span class="lbl">Stop BG Video</span>
+            </button>
+          </div>
+
+          <p class="hint" id="bg-remote-status" aria-live="polite"></p>
         </div>
       </section>
     </main>

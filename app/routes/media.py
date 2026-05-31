@@ -47,6 +47,9 @@ class DownloadRequest(BaseModel):
 class PlayRequest(BaseModel):
     filename: str = Field(..., min_length=1, max_length=512)
     library: Literal["videos", "music"] = "videos"
+    # When True and library == "videos", the video plays muted on the
+    # framebuffer without stopping music or shuffle ("BG Play" mode).
+    background: bool = Field(default=False)
 
 
 class SeekRequest(BaseModel):
@@ -302,6 +305,7 @@ def get_download(job_id: str) -> dict[str, Any]:
 @router.post("/play")
 def post_play(payload: PlayRequest) -> dict[str, Any]:
     is_audio = payload.library == "music"
+    is_bg = payload.background and not is_audio
     try:
         if is_audio:
             path = catalogue.resolve_music(payload.filename)
@@ -322,12 +326,19 @@ def post_play(payload: PlayRequest) -> dict[str, Any]:
             # is untouched, so the slideshow / yellow idle screen on the
             # TV keeps showing while music plays.
             pid = player.play_audio(path)
+            log.info("Playing audio %s (pid=%s)", path.name, pid)
+        elif is_bg:
+            # BG Play: muted video on the framebuffer, music/shuffle untouched.
+            pid = player.play_bg_video(path)
+            log.info("Playing bg-video %s (pid=%s)", path.name, pid)
         else:
-            # Video takes over the framebuffer (display controller swaps
-            # the slideshow/yellow content for the requested file). We
-            # record the prior screensaver state for logging only.
+            # Foreground video takes over the framebuffer; stops audio/shuffle.
             was_slideshow = screensaver.stop_for_video()
             pid = player.play_video(path)
+            log.info(
+                "Playing video %s (pid=%s, was_slideshow=%s)",
+                path.name, pid, was_slideshow,
+            )
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except RuntimeError as exc:
@@ -338,17 +349,13 @@ def post_play(payload: PlayRequest) -> dict[str, Any]:
     except Exception:
         log.exception("metadata: failed to bump play_count for %s", path.name)
 
-    if is_audio:
-        log.info("Playing audio %s (pid=%s)", path.name, pid)
-    else:
-        log.info(
-            "Playing %s (pid=%s, was_slideshow=%s)", path.name, pid, was_slideshow
-        )
+    kind = "audio" if is_audio else ("bg_video" if is_bg else "video")
     return {
         "status": "playing",
         "filename": path.name,
         "pid": pid,
-        "kind": "audio" if is_audio else "video",
+        "kind": kind,
+        "background": is_bg,
     }
 
 
@@ -356,6 +363,54 @@ def post_play(payload: PlayRequest) -> dict[str, Any]:
 def post_stop() -> dict[str, Any]:
     was_running = player.stop()
     return {"status": "stopped", "was_playing": was_running}
+
+
+@router.post("/stop/bg_video")
+def post_stop_bg_video() -> dict[str, Any]:
+    """Stop the background video only.
+
+    Audio playback and the shuffle queue are not affected. Use this from
+    the remote "Stop BG Video" control when a bg-play session is active.
+    """
+    was_active = player.stop_bg_video()
+    return {"status": "stopped", "was_active": was_active}
+
+
+@router.post("/bg_video/control/pause")
+def post_bg_video_pause(payload: PauseRequest) -> dict[str, Any]:
+    """Toggle or set pause on the background video only.
+
+    Does not affect the headless audio player or shuffle.
+    """
+    if not player.is_bg_video_active():
+        raise HTTPException(status_code=409, detail="No background video is playing")
+    try:
+        if payload.paused is None:
+            new_paused = player.toggle_pause_bg_video()
+        else:
+            new_paused = player.set_paused_bg_video(payload.paused)
+    except player.PlayerNotRunning as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return {"status": "ok", "paused": new_paused}
+
+
+@router.post("/bg_video/control/seek")
+def post_bg_video_seek(payload: SeekRequest) -> dict[str, Any]:
+    """Seek the background video by a relative number of seconds.
+
+    Does not affect the headless audio player.
+    """
+    if not player.is_bg_video_active():
+        raise HTTPException(status_code=409, detail="No background video is playing")
+    try:
+        player.seek_bg_video(payload.seconds)
+    except player.PlayerNotRunning as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return {"status": "ok", "seconds": payload.seconds}
 
 
 @router.get("/status")

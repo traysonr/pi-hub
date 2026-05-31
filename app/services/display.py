@@ -122,6 +122,10 @@ class _State:
     # misread as "the requested video already ended".
     stale_playlist_entry_ids: set[int] = field(default_factory=set)
     pending_video_path: str | None = None
+    # True when the current video was started via play_video_bg so the
+    # facade can keep music running underneath it. Cleared whenever the
+    # display exits video mode (stop, EOF, idle transition).
+    is_bg_video: bool = False
 
 
 # --- Module state (guarded by _lock) -----------------------------------
@@ -189,6 +193,7 @@ def shutdown() -> None:
             except OSError:
                 pass
         _state.mode = MODE_OFF
+        _state.is_bg_video = False
         _state.video_path = None
         _state.video_title = None
         _state.started_at = None
@@ -205,6 +210,7 @@ def get_state() -> dict[str, Any]:
         return {
             "mode": _state.mode,
             "idle_mode": _state.idle_mode,
+            "is_bg_video": _state.is_bg_video,
             "video_path": _state.video_path,
             "video_title": _state.video_title,
             "last_error": _state.last_error,
@@ -234,6 +240,12 @@ def get_current_path() -> str | None:
 def is_video_mode() -> bool:
     with _lock:
         return _state.mode == MODE_VIDEO and _is_proc_alive()
+
+
+def is_bg_video_mode() -> bool:
+    """True only when a muted background video is on screen."""
+    with _lock:
+        return _state.mode == MODE_VIDEO and _state.is_bg_video and _is_proc_alive()
 
 
 def set_slideshow_playlist_provider(
@@ -312,6 +324,7 @@ def play_video(path: Path, *, title: str | None = None) -> None:
         # right context if mpv emits start/end-file events for the
         # outgoing idle content during the replace handoff.
         _state.mode = MODE_VIDEO
+        _state.is_bg_video = False  # foreground video always clears bg flag
         _state.video_path = str(path)
         _state.video_title = title or path.name
         _state.started_at = time.time()
@@ -330,6 +343,40 @@ def play_video(path: Path, *, title: str | None = None) -> None:
     log.info("Display: entering video mode (%s)", path.name)
 
 
+def play_video_bg(path: Path, *, title: str | None = None) -> None:
+    """Switch into video mode with display audio muted (background-video mode).
+
+    Unlike ``play_video``, this does not touch the headless audio player,
+    so music and shuffle keep running underneath the silent video. The
+    display returns to its configured idle mode when the video ends —
+    the same EOF / manual-stop path as a normal video.
+    """
+
+    if not path.is_file():
+        raise FileNotFoundError(f"Video not found: {path}")
+
+    with _lock:
+        if not _ensure_running_locked():
+            raise RuntimeError(_state.last_error or "Display controller not available")
+
+        _configure_for_bg_video_locked()
+
+        _state.mode = MODE_VIDEO
+        _state.is_bg_video = True
+        _state.video_path = str(path)
+        _state.video_title = title or path.name
+        _state.started_at = time.time()
+        _state.last_error = None
+        _state.pending_video_path = str(path)
+        _state.stale_playlist_entry_ids.clear()
+        if _state.active_playlist_entry_id is not None:
+            _state.stale_playlist_entry_ids.add(_state.active_playlist_entry_id)
+
+        _ipc_request_locked(["loadfile", str(path), "replace"])
+        _safe_set("pause", False)
+    log.info("Display: entering bg-video mode (%s)", path.name)
+
+
 def stop_video() -> bool:
     """Exit video mode and immediately apply the idle fallback.
 
@@ -340,6 +387,7 @@ def stop_video() -> bool:
         was_playing = _state.mode == MODE_VIDEO
         if was_playing:
             log.info("Display: stop video, returning to %s", _state.idle_mode)
+        _state.is_bg_video = False
         _apply_idle_locked()
         return was_playing
 
@@ -790,6 +838,7 @@ def _enter_slideshow_locked() -> bool:
         return False
 
     _state.mode = MODE_SLIDESHOW
+    _state.is_bg_video = False
     _state.video_path = None
     _state.video_title = None
     _state.started_at = time.time()
@@ -812,6 +861,7 @@ def _enter_yellow_locked() -> None:
         return
 
     _state.mode = MODE_YELLOW
+    _state.is_bg_video = False
     _state.video_path = None
     _state.video_title = None
     _state.started_at = time.time()
@@ -836,6 +886,24 @@ def _configure_for_video_locked() -> None:
     _safe_set("aid", "auto")
     _safe_set("vid", "auto")
     _safe_set("mute", False)
+    _safe_set("loop-file", "no")
+    _safe_set("loop-playlist", "no")
+    _safe_set("image-display-duration", 0)
+    _safe_set("keep-open", "no")
+
+
+def _configure_for_bg_video_locked() -> None:
+    """Set mpv properties for background (muted) video playback.
+
+    Identical to the foreground-video config except that ``mute`` is
+    forced on. The headless audio mpv is untouched, so the user's music
+    keeps playing at full volume on the ALSA device.
+    """
+
+    _safe_set("vf", "")
+    _safe_set("aid", "auto")
+    _safe_set("vid", "auto")
+    _safe_set("mute", True)
     _safe_set("loop-file", "no")
     _safe_set("loop-playlist", "no")
     _safe_set("image-display-duration", 0)

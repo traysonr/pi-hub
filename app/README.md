@@ -12,14 +12,14 @@ RELATED: ../README.md, ../docs/README.md, ../docs/INDEX.md, ../AGENTS.md
 
 ## HTTP routes
 
-- `routes/media.py` — Video and music catalogue, downloads (video + audio-only), playback, TV HDMI-CEC, and remote-style controls.
+- `routes/media.py` — Video and music catalogue, downloads (video + audio-only), playback, TV HDMI-CEC, and remote-style controls, including the background-video control endpoints.
 - `routes/screensaver.py` — Screensaver state, themes, refresh, and master toggle.
 
 ## Core services
 
-- `services/display.py` — Single long-lived `mpv` process and JSON IPC; owns HDMI transitions between slideshow, video, and yellow idle modes.
+- `services/display.py` — Single long-lived `mpv` process and JSON IPC; owns HDMI transitions between slideshow, foreground video, background video, and yellow idle modes.
 - `services/audio_player.py` — Headless `mpv` backend for music playback over HDMI/ALSA without disturbing whatever the display controller is showing.
-- `services/player.py` — Playback facade dispatching between the video (display) and audio backends; also surfaces unified `/api/status` and remote controls.
+- `services/player.py` — Playback facade dispatching between the video (display) and audio backends; also surfaces unified `/api/status`, background-video status fields, and remote controls.
 - `services/shuffle.py` — Continuous shuffle mode for the music library (plays random tracks end-to-end). Provides next/prev track controls for the Remote tab while shuffle is active.
 - `services/screensaver.py` — Theme configuration, Reddit-backed image cache, and idle-mode coordination with `display`.
 - `services/reddit.py` — Subreddit listing and on-disk image cache helpers.
