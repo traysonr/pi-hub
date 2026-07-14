@@ -41,6 +41,21 @@ def test_bot_detection_without_cookies() -> None:
     assert "cookies" in msg.lower() and "configured" in msg.lower()
 
 
+def test_http_403_maps_to_client_hint() -> None:
+    stderr = (
+        "WARNING: Your yt-dlp version (2026.03.17) is older than 90 days!\n"
+        "ERROR: unable to download video data: HTTP Error 403: Forbidden"
+    )
+    msg = downloader._yt_dlp_failure_user_message(
+        stderr,
+        cookies_path=Path("/tmp/cookies.txt"),
+        cookies_present=True,
+    )
+    assert "403" in msg
+    assert "player_client" in msg.lower() or "PI_HUB_YT_PLAYER_CLIENTS" in msg
+    assert "older than 90 days" not in msg.lower()
+
+
 def test_youtube_extraction_failure_not_misreported_as_h264() -> None:
     """When nsig fails, stderr still ends with 'requested format is not available'."""
 

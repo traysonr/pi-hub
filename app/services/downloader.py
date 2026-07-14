@@ -36,18 +36,25 @@ _COOKIES_PATH = Path(
     )
 )
 
-# YouTube periodically rotates its player JS in ways that break yt-dlp's
-# default `web` client (formats are gated behind an n-signature challenge
-# the released yt-dlp can't yet solve, so extraction returns "No video
-# formats found"). The `tv` and `web_embedded` clients use a different
-# player path that consistently exposes the H.264 DASH ladder we need on
-# the Pi 3, so we pin those as our primary + fallback. Empirically tested
-# 2026-04-19 against player `4b0d80ee`: tv -> full ladder, web_embedded
-# -> full ladder, default web -> broken. Override via env if YouTube
-# breaks these next; comma-separated list, tried in order by yt-dlp.
+# YouTube rotates which Innertube "player clients" return usable format
+# URLs. Some clients extract formats fine but then 403 on the googlevideo
+# CDN (missing GVS PO token / SABR binding); others lack the H.264 ladder
+# the Pi 3 needs. We pin a client list that yt-dlp tries in order.
+#
+# Empirically re-validated 2026-07-12: the previous pin `tv,web_embedded`
+# extracted audio format 140 then failed with HTTP 403 on the CDN URL for
+# monetized videos. Working clients with cookies: tv_embedded, mweb, web,
+# web_safari. Override via env if YouTube breaks these next.
 _YT_PLAYER_CLIENTS = os.environ.get(
     "PI_HUB_YT_PLAYER_CLIENTS",
-    "tv,web_embedded",
+    "tv_embedded,mweb,web_safari",
+).strip()
+
+# If the primary client list still 403s on media URLs, retry once with
+# this broader fallback before surfacing the error to the user.
+_YT_PLAYER_CLIENTS_FALLBACK = os.environ.get(
+    "PI_HUB_YT_PLAYER_CLIENTS_FALLBACK",
+    "mweb,web,web_safari,tv_embedded",
 ).strip()
 
 
@@ -131,6 +138,18 @@ def _yt_dlp_failure_user_message(
             "YouTube rejected the cookies (likely expired). Re-export "
             "cookies.txt from your throwaway account and replace "
             f"{cookies_path}."
+        )
+    # YouTube often returns HTTP 403 on media URLs when yt-dlp's extractor
+    # is stale (CDN tokens / SABR / player client changes). The "older than
+    # 90 days" warning almost always accompanies this.
+    if "http error 403" in joined or "403: forbidden" in joined:
+        return (
+            "YouTube blocked the download (HTTP 403). Usually a stale "
+            "player_client pin or cookies — not necessarily an outdated "
+            "yt-dlp. Try again after a restart (Pi Hub auto-retries "
+            "alternate clients on 403). If it persists, re-export "
+            f"cookies.txt at {cookies_path} or set "
+            "PI_HUB_YT_PLAYER_CLIENTS=mweb,tv_embedded,web_safari."
         )
     return "; ".join(stderr_tail) or "yt-dlp failed"
 
@@ -287,6 +306,40 @@ def _build_audio_cmd(binary: str) -> tuple[list[str], Path]:
     return cmd, MUSIC_DIR
 
 
+def _is_http_403(stderr: str) -> bool:
+    text = (stderr or "").lower()
+    return "http error 403" in text or "403: forbidden" in text
+
+
+def _attach_player_clients(cmd: list[str], clients: str) -> None:
+    """Append or replace ``--extractor-args youtube:player_client=...``."""
+    # Drop any prior extractor-args so a fallback retry doesn't stack two.
+    cleaned: list[str] = []
+    skip_next = False
+    for token in cmd:
+        if skip_next:
+            skip_next = False
+            continue
+        if token == "--extractor-args":
+            skip_next = True
+            continue
+        cleaned.append(token)
+    cmd[:] = cleaned
+    if clients:
+        cmd.extend(["--extractor-args", f"youtube:player_client={clients}"])
+
+
+def _run_yt_dlp(cmd: list[str], env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        cmd,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=60 * 60,
+        env=env,
+    )
+
+
 def _run_download(job: DownloadJob) -> None:
     binary = _yt_dlp_path()
     if binary is None:
@@ -314,10 +367,7 @@ def _run_download(job: DownloadJob) -> None:
     # currently working, so a YouTube-side player rotation doesn't silently
     # turn every download into "No video formats found".
     if _YT_PLAYER_CLIENTS:
-        cmd.extend([
-            "--extractor-args",
-            f"youtube:player_client={_YT_PLAYER_CLIENTS}",
-        ])
+        _attach_player_clients(cmd, _YT_PLAYER_CLIENTS)
         log.info("Using YouTube player_client=%s", _YT_PLAYER_CLIENTS)
 
     cmd.append(job.url)
@@ -345,14 +395,7 @@ def _run_download(job: DownloadJob) -> None:
         env["PATH"] = os.pathsep.join(extra_paths + [env.get("PATH", "")])
 
     try:
-        completed = subprocess.run(
-            cmd,
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=60 * 60,
-            env=env,
-        )
+        completed = _run_yt_dlp(cmd, env)
     except subprocess.TimeoutExpired:
         log.exception("Download timed out: id=%s", job.id)
         job.yt_dlp_returncode = None
@@ -367,6 +410,44 @@ def _run_download(job: DownloadJob) -> None:
         job.yt_dlp_stdout = None
         _set_status(job, "error", f"Failed to start yt-dlp: {exc}")
         return
+
+    # CDN 403 after a successful format listing usually means the pinned
+    # player_client's media URLs need a PO token (or are otherwise rejected).
+    # Retry once with the fallback client list before failing the job.
+    if (
+        completed.returncode != 0
+        and _is_http_403(completed.stderr or "")
+        and _YT_PLAYER_CLIENTS_FALLBACK
+        and _YT_PLAYER_CLIENTS_FALLBACK != _YT_PLAYER_CLIENTS
+    ):
+        log.warning(
+            "Download id=%s hit HTTP 403 with player_client=%s; "
+            "retrying with fallback=%s",
+            job.id, _YT_PLAYER_CLIENTS, _YT_PLAYER_CLIENTS_FALLBACK,
+        )
+        _set_status(job, "downloading", "Retrying with alternate YouTube clients")
+        # URL is last; rebuild extractor-args in place ahead of it.
+        url = cmd.pop()
+        _attach_player_clients(cmd, _YT_PLAYER_CLIENTS_FALLBACK)
+        cmd.append(url)
+        try:
+            completed = _run_yt_dlp(cmd, env)
+        except subprocess.TimeoutExpired:
+            log.exception("Download timed out on fallback: id=%s", job.id)
+            job.yt_dlp_returncode = None
+            job.yt_dlp_stderr = (
+                "Download timed out after 60 minutes on fallback clients."
+            )
+            job.yt_dlp_stdout = None
+            _set_status(job, "error", "Download timed out")
+            return
+        except OSError as exc:
+            log.exception("Download fallback failed to start: id=%s", job.id)
+            job.yt_dlp_returncode = None
+            job.yt_dlp_stderr = str(exc)
+            job.yt_dlp_stdout = None
+            _set_status(job, "error", f"Failed to start yt-dlp: {exc}")
+            return
 
     if completed.returncode != 0:
         stderr_raw = completed.stderr or ""

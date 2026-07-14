@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, Response
@@ -24,6 +25,7 @@ from app.services import (
     scheduler,
     screensaver,
     shuffle,
+    ytdlp_updater,
 )
 
 configure_logging()
@@ -57,7 +59,27 @@ scheduler.register(
     scheduler.daily("05:00"),
     screensaver.rotate_all_themes,
 )
+# Keep yt-dlp current so YouTube downloads don't rot into HTTP 403 /
+# "no formats" errors the way a stale build does. YouTube rotates its
+# player JS every few months; a weekly upgrade tracks that automatically.
+# The downloader shells out to .venv/bin/yt-dlp fresh per job, so the
+# upgrade takes effect on the next download with no restart. See
+# app/services/ytdlp_updater.py for why this is safe and self-healing.
+scheduler.register(
+    "yt_dlp_autoupdate",
+    scheduler.weekly("Mon", "04:30"),
+    ytdlp_updater.update,
+)
 scheduler.start()
+
+# Safety net for a Pi that's been powered off past the weekly tick: if the
+# installed build is already stale, self-heal shortly after boot. Runs on a
+# daemon thread so a slow/offline network never blocks app startup.
+threading.Thread(
+    target=ytdlp_updater.maybe_update_on_startup,
+    name="yt-dlp-startup-update",
+    daemon=True,
+).start()
 
 log = logging.getLogger("pi-hub")
 
