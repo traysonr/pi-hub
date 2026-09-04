@@ -21,6 +21,7 @@ from app.routes import screensaver as screensaver_routes
 from app.services import (
     audio_player,
     display,
+    gpio_buttons,
     metadata,
     scheduler,
     screensaver,
@@ -46,6 +47,10 @@ audio_player.init()
 # Register shuffle's end-of-track hook on the audio player so the music
 # shuffle mode can queue the next random track automatically.
 shuffle.init()
+# Car-deck momentary buttons (shuffle / pause / skip+seek). Soft-fails
+# when libgpiod or the gpiochip isn't available so non-Pi hosts and the
+# web UI keep working unchanged.
+gpio_buttons.init()
 screensaver.init()
 
 # Daily FIFO-ish rotation of cached subreddit images. Keeps a random

@@ -1,6 +1,6 @@
 STATUS: CANONICAL
 OWNER: trays
-LAST UPDATED: 2026-04-22
+LAST UPDATED: 2026-09-04
 SCOPE: Pi Hub network-controlled media server for Raspberry Pi — setup, API, screensaver, and operations.
 RELATED: docs/README.md, docs/INDEX.md, app/README.md, AGENTS.md
 
@@ -205,6 +205,7 @@ pi-hub/
       downloader.py    yt-dlp background jobs (video and audio-only)
       player.py        Playback facade dispatching between video and audio backends
       cec.py           HDMI-CEC TV wake/sleep
+      gpio_buttons.py  Optional car-deck GPIO buttons (shuffle/pause/skip+seek)
       reddit.py        Subreddit image listing + cache
       screensaver.py   Slideshow lifecycle and theme management
       scheduler.py     In-app daily/weekly job scheduler (cache rotation, future tasks)
@@ -293,6 +294,25 @@ backlog.
 
 System dependency: `mpv` (already required for video playback) handles
 all three rendering modes.
+
+## GPIO car-deck buttons
+
+Three momentary pushbuttons can drive the same music controls as the
+Remote tab, for fully headless use (car / vacation) without the web UI.
+Wire each GPIO to ground; the Pi's internal pull-ups are enabled in
+software (idle HIGH, pressed LOW):
+
+| Header pin | BCM | Action |
+| --- | --- | --- |
+| 11 | GPIO17 | Toggle shuffle on/off |
+| 13 | GPIO27 | Toggle pause / play |
+| 15 | GPIO22 | Short press: next track. Hold ~2s: seek +15s immediately, then +15s about once per second while held. Release after a long press does **not** also skip. |
+
+Requires OS package `python3-libgpiod` (and membership in the `gpio`
+group — the `gilberto` user already has it). The listener starts at app
+boot and fails soft if the chip/library isn't there, so the HTTP UI is
+unchanged. Set `PI_HUB_GPIO_BUTTONS=0` to disable, or
+`PI_HUB_GPIO_CHIP=/dev/gpiochip0` to override the chip device.
 
 ## Future Work (designed for, not implemented)
 
