@@ -306,7 +306,7 @@ software (idle HIGH, pressed LOW):
 | --- | --- | --- |
 | 11 | GPIO17 | Toggle shuffle on/off |
 | 13 | GPIO27 | Toggle pause / play |
-| 15 | GPIO22 | Short press: next track. Hold ~2s: seek +15s immediately, then +15s about once per second while held. Release after a long press does **not** also skip. |
+| 15 | GPIO22 | Short press: next track. Hold ~2s: seek +15s immediately, then +15s about every 0.333s while held. Release after a long press does **not** also skip. |
 
 Requires OS package `python3-libgpiod` (and membership in the `gpio`
 group — the `gilberto` user already has it). The listener starts at app

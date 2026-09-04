@@ -43,7 +43,7 @@ class _Harness:
             now=self.clock,
             debounce_s=0.05,
             long_press_s=2.0,
-            seek_repeat_s=1.0,
+            seek_repeat_s=0.333,
         )
 
     def set(self, bcm: int, pressed: bool) -> None:
@@ -107,10 +107,10 @@ def test_long_skip_seeks_and_does_not_next_on_release() -> None:
     h.hold_stable(0.2)
     assert h.events == ["seek"]
 
-    # Repeat approximately once per second while held.
-    h.hold_stable(1.0)
+    # Repeat approximately every 0.333s while held.
+    h.hold_stable(0.333)
     assert h.events == ["seek", "seek"]
-    h.hold_stable(1.0)
+    h.hold_stable(0.333)
     assert h.events == ["seek", "seek", "seek"]
 
     h.set(GPIO_SKIP, False)

@@ -7,7 +7,7 @@ pull-ups keep each line HIGH when idle and LOW while pressed:
   BCM 27 (header pin 13) — toggle pause / play
   BCM 22 (header pin 15) — short press: hard-skip to next shuffle track;
                            hold ~2s: seek +15s immediately, then repeat
-                           ~once per second while held
+                           ~every 0.333s while held
 
 This module is intentionally tolerant: missing ``gpiod``, a missing
 gpiochip, or permission errors are logged and ``init()`` becomes a no-op
@@ -37,7 +37,7 @@ _DEFAULT_CHIP = "/dev/gpiochip0"
 _POLL_INTERVAL_S = 0.02
 _DEBOUNCE_S = 0.05
 _LONG_PRESS_S = 2.0
-_SEEK_REPEAT_S = 1.0
+_SEEK_REPEAT_S = 0.333
 _SEEK_DELTA_S = 15.0
 
 # pressed = line driven low (to ground) against pull-up.
