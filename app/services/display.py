@@ -46,7 +46,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
-from app.config import SCREENSAVER_CACHE_DIR
+from app.config import SCREENSAVER_CACHE_DIR, resolve_audio_device
 
 log = logging.getLogger(__name__)
 
@@ -80,10 +80,6 @@ _MAX_TEXTURE_DIM = int(os.environ.get("PI_HUB_MAX_TEXTURE_DIM", "2048"))
 # the user never sees the underlying console. Generated on first start
 # if it doesn't already exist; safe to delete (will be regenerated).
 _YELLOW_PNG_NAME = "_pi-hub-yellow.png"
-
-# Audio output target for video playback. Reused from the legacy player
-# config so existing PI_HUB_AUDIO_DEVICE overrides keep working.
-_AUDIO_DEVICE = os.environ.get("PI_HUB_AUDIO_DEVICE", "alsa/plughw:1,0")
 
 
 # --- Public types ------------------------------------------------------
@@ -535,8 +531,10 @@ def _spawn_mpv_locked() -> None:
         "--pause=no",
         f"--input-ipc-server={_IPC_SOCKET}",
     ]
-    if _AUDIO_DEVICE and _AUDIO_DEVICE.lower() != "auto":
-        cmd.append(f"--audio-device={_AUDIO_DEVICE}")
+    audio_device = resolve_audio_device()
+    if audio_device:
+        cmd.append(f"--audio-device={audio_device}")
+        log.info("display mpv: using audio device %s", audio_device)
 
     try:
         log_fh: Any = open(_MPV_LOG_PATH, "wb")

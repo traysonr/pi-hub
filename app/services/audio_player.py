@@ -3,7 +3,8 @@
 The framebuffer is owned by ``display.py`` (a single persistent ``mpv``
 that runs the slideshow / yellow fallback / video). For *audio-only*
 playback we want the slideshow to keep running on screen while music
-comes out of HDMI audio. That requires a second ``mpv`` instance whose
+comes out of the shared ALSA device (HDMI or the 3.5mm jack). That
+requires a second ``mpv`` instance whose
 video output is disabled (``--no-video --vo=null``) so it never touches
 the framebuffer.
 
@@ -36,6 +37,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from app.config import resolve_audio_device
+
 log = logging.getLogger(__name__)
 
 
@@ -44,9 +47,6 @@ _IPC_TIMEOUT = 1.5
 _MPV_LOG_PATH = Path("/tmp/pi-hub-mpv-audio.log")
 _MPV_STARTUP_PROBE_SECONDS = 0.6
 _RESTART_BACKOFF_SECONDS = 2.0
-
-# Same audio target as the display controller so mute/route is consistent.
-_AUDIO_DEVICE = os.environ.get("PI_HUB_AUDIO_DEVICE", "alsa/plughw:1,0")
 
 
 @dataclass
@@ -312,8 +312,10 @@ def _spawn_mpv_locked() -> None:
         "--msg-level=all=info",
         f"--input-ipc-server={_IPC_SOCKET}",
     ]
-    if _AUDIO_DEVICE and _AUDIO_DEVICE.lower() != "auto":
-        cmd.append(f"--audio-device={_AUDIO_DEVICE}")
+    audio_device = resolve_audio_device()
+    if audio_device:
+        cmd.append(f"--audio-device={audio_device}")
+        log.info("audio mpv: using audio device %s", audio_device)
 
     try:
         log_fh: Any = open(_MPV_LOG_PATH, "wb")

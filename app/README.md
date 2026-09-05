@@ -31,4 +31,4 @@ RELATED: ../README.md, ../docs/README.md, ../docs/INDEX.md, ../AGENTS.md
 
 ## Configuration
 
-Runtime paths and environment overrides are defined in `config.py`. Screensaver theme JSON lives at `config/screensaver-themes.json` on the Pi (gitignored); copy from `config/screensaver-themes.json.example` to get started.
+Runtime paths and environment overrides are defined in `config.py` (including `resolve_audio_device()` — HDMI when a display is connected, otherwise the 3.5mm aux/headphone jack; override with `PI_HUB_AUDIO_DEVICE`). Screensaver theme JSON lives at `config/screensaver-themes.json` on the Pi (gitignored); copy from `config/screensaver-themes.json.example` to get started.

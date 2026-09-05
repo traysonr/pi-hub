@@ -108,6 +108,11 @@ Environment overrides (set in the systemd unit or your shell):
 - `PI_HUB_PORT` (default `8000`)
 - `PI_HUB_MEDIA_DIR` (default `<project>/media`)
 - `PI_HUB_YT_COOKIES` (default `<project>/secrets/youtube-cookies.txt`)
+- `PI_HUB_AUDIO_DEVICE` (default `auto`) — mpv ALSA target for both the
+  display and music players. `auto` prefers HDMI when a display is
+  connected, otherwise the 3.5mm headphone/aux jack
+  (`alsa/plughw:CARD=Headphones,DEV=0`). Set an explicit device (e.g.
+  `alsa/plughw:CARD=vc4hdmi,DEV=0`) to lock routing.
 
 ## YouTube authentication (cookies)
 
